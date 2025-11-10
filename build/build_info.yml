@@ -1,0 +1,58 @@
+cmake:
+  application:
+    configuration-dir: '/home/javad/zephyrproject/zephyr/workspace/gps_logger'
+    source-dir: '/home/javad/zephyrproject/zephyr/workspace/gps_logger'
+  board:
+    name: 'native_sim'
+    path:
+     - '/home/javad/zephyrproject/zephyr/boards/native/native_sim'
+    qualifiers: 'native'
+    revision: ''
+  devicetree:
+    bindings-dirs:
+     - '/home/javad/zephyrproject/zephyr/dts/bindings'
+    files:
+     - '/home/javad/zephyrproject/zephyr/boards/native/native_sim/native_sim.dts'
+    include-dirs:
+     - '/home/javad/zephyrproject/modules/hal/ambiq/dts'
+     - '/home/javad/zephyrproject/modules/hal/atmel/include'
+     - '/home/javad/zephyrproject/modules/hal/bouffalolab/include'
+     - '/home/javad/zephyrproject/modules/hal/bouffalolab/include/zephyr'
+     - '/home/javad/zephyrproject/modules/hal/gigadevice/include'
+     - '/home/javad/zephyrproject/modules/hal/microchip/include'
+     - '/home/javad/zephyrproject/modules/hal/microchip/dts'
+     - '/home/javad/zephyrproject/modules/hal/nuvoton/dts'
+     - '/home/javad/zephyrproject/modules/hal/nxp/dts'
+     - '/home/javad/zephyrproject/modules/hal/stm32/dts'
+     - '/home/javad/zephyrproject/modules/hal/ti/dts'
+     - '/home/javad/zephyrproject/zephyr/include'
+     - '/home/javad/zephyrproject/zephyr/include/zephyr'
+     - '/home/javad/zephyrproject/zephyr/dts/common'
+     - '/home/javad/zephyrproject/zephyr/dts/vendor'
+     - '/home/javad/zephyrproject/zephyr/dts/rx'
+     - '/home/javad/zephyrproject/zephyr/dts/x86'
+     - '/home/javad/zephyrproject/zephyr/dts/xtensa'
+     - '/home/javad/zephyrproject/zephyr/dts/sparc'
+     - '/home/javad/zephyrproject/zephyr/dts/riscv'
+     - '/home/javad/zephyrproject/zephyr/dts/posix'
+     - '/home/javad/zephyrproject/zephyr/dts/arm64'
+     - '/home/javad/zephyrproject/zephyr/dts/arm'
+     - '/home/javad/zephyrproject/zephyr/dts/arc'
+     - '/home/javad/zephyrproject/zephyr/dts'
+  kconfig:
+    files:
+     - '/home/javad/zephyrproject/zephyr/boards/native/native_sim/native_sim_defconfig'
+     - '/home/javad/zephyrproject/zephyr/workspace/gps_logger/prj.conf'
+    user-files:
+     - '/home/javad/zephyrproject/zephyr/workspace/gps_logger/prj.conf'
+  toolchain:
+    name: 'host'
+    path: ''
+  zephyr:
+    version: '4.3.0-rc2'
+    zephyr-base: '/home/javad/zephyrproject/zephyr'
+version: '0.1.0'
+west:
+  command: '/home/javad/.local/bin/west build -p -b native_sim -s /home/javad/zephyrproject/zephyr/workspace/gps_logger -d /home/javad/zephyrproject/zephyr/workspace/gps_logger/build'
+  topdir: '/home/javad/zephyrproject'
+  version: '1.3.0'

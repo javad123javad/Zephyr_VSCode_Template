@@ -1,0 +1,19 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "../../include/zephyr/**",
+                "/home/javad/zephyrproject/zephyr/include",
+                "/home/javad/zephyrproject/zephyr/build/zephyr/include/generated/**"
+            ],
+            "defines": [],
+            "compilerPath": "/usr/lib64/ccache/clang",
+            "cStandard": "c17",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "linux-clang-x64"
+        }
+    ],
+    "version": 4
+}

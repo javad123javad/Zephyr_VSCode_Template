@@ -1,0 +1,68 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Zephyr: Native Sim - Debug",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/zephyr/zephyr.exe",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/build/zephyr",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Set disassembly flavor to Intel",
+                    "text": "-gdb-set disassembly-flavor intel",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "zephyr:sim:build",
+            "linux": {
+                "MIMode": "gdb",
+                "miDebuggerPath": "/usr/bin/gdb"
+            },
+            "osx": {
+                "MIMode": "lldb"
+            },
+            "windows": {
+                "miDebuggerPath": "gdb.exe"
+            }
+        },
+        {
+            "name": "STM32F103-Mini",
+            "type": "cortex-debug",
+            "armToolchainPath": "/home/javad/workspace/embedded/toolchain/arm-gnu-toolchain-14.3.rel1-x86_64-arm-none-eabi/bin/",
+            "request": "launch",
+            "servertype": "stlink",
+            "cwd": "${workspaceRoot}",
+            "executable": "${workspaceRoot}/build/zephyr/zephyr.elf",
+            "device": "stm32f103_mini",
+            "interface": "swd",
+        },
+        {
+            "name": "Zephyr: Native Sim - Attach",
+            "type": "cppdbg",
+            "request": "attach",
+            "program": "${workspaceFolder}/build/zephyr/zephyr.exe",
+            "processId": "${command:pickProcess}",
+            "MIMode": "gdb",
+            "miDebuggerPath": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        }
+    ]
+}

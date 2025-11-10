@@ -1,0 +1,9 @@
+[
+    // Replace "yourTaskLabel" with the "label" of the task in .vscode/tasks.json
+    {
+        "key": "ctrl+r",
+        "command": "workbench.action.tasks.runTask",
+        "args": "Run Sim",
+        "when": "editorTextFocus"
+    }
+]

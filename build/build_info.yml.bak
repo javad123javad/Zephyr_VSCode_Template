@@ -1,0 +1,5 @@
+west:
+  command: /home/javad/.local/bin/west build -p -b native_sim -s /home/javad/zephyrproject/zephyr/workspace/gps_logger
+    -d /home/javad/zephyrproject/zephyr/workspace/gps_logger/build
+  topdir: /home/javad/zephyrproject
+  version: 1.3.0
