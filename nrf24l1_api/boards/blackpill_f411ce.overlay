@@ -1,0 +1,14 @@
+&spi1 {
+		status = "okay";
+
+        nrf24l1:nrf24l1@0{
+            compatible = "nordic,nrf24l1";
+            reg = <0x0>;
+            spi-max-frequency = <80000000>;
+
+            ce-gpios = <&gpioa 1 GPIO_ACTIVE_HIGH>;
+            irq-gpios = <&gpioa 2 GPIO_ACTIVE_HIGH>;
+            csn-gpios = <&gpioa 3 GPIO_ACTIVE_HIGH>;
+        };
+		
+};
