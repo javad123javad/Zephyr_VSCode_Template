@@ -1,14 +1,27 @@
 &spi1 {
-		status = "okay";
+	status = "okay";
+	pinctrl-names = "default";
+	cs-gpios = <&gpioa 4 GPIO_ACTIVE_LOW>;
 
-        nrf24l1:nrf24l1@0{
-            compatible = "nordic,nrf24l1";
-            reg = <0x0>;
-            spi-max-frequency = <80000000>;
-
-            ce-gpios = <&gpioa 1 GPIO_ACTIVE_HIGH>;
-            irq-gpios = <&gpioa 2 GPIO_ACTIVE_HIGH>;
-            csn-gpios = <&gpioa 3 GPIO_ACTIVE_HIGH>;
-        };
+	nrf24l1: nrf24l1@0 {
+		compatible = "nordic,nrf24l1";
+		reg = <0>;
+		spi-max-frequency = <8000000>;
+		ce-gpios = <&gpioa 0 GPIO_ACTIVE_HIGH>;
+		irq-gpios = <&gpioa 1 GPIO_ACTIVE_LOW>;
+        csn-gpios = <&gpioa 2 GPIO_ACTIVE_HIGH>;
 		
+		addr-width = <4>;
+
+        channel-frequency = <16>;
+		rf-power-attenuation = <18>;
+		lna-gain;
+		tx-address = [e7 e7 e7 e7];
+		rx-datapipes-number = <2>;
+		rx-datapipe0-address = [e7 e7 e7 e7];
+		rx-datapipe1-address = [de ad de ad];
+		payload-fixed-size = <32>;
+		payload-ack;
+		payload-crc;
+	};
 };
