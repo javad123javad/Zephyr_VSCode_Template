@@ -1,0 +1,74 @@
+/*
+ * Copyright (c) 2024 Eve Redero
+ * SPDX-License-Identifier: Apache-2.0
+ */
+/ {
+	zephyr,user {
+		/* adjust channel number according to pinmux in board.dts and datasheet*/
+	};
+
+
+
+};
+
+&spi1 {
+	pinctrl-0 = <&spi1_sck_master_pa5 &spi1_miso_master_pa6 &spi1_mosi_master_pa7>;
+	pinctrl-names = "default";
+	cs-gpios = <&gpioa 3 GPIO_ACTIVE_LOW>;
+	clock-frequency = <8000000>; // Max 8 Mbps for SPI
+	status = "okay";
+
+	nrf24l1: nrf24l01@0 {
+		reg = <0>;
+		addr-width = <4>;
+		compatible = "nordic,nrf24l01";
+		status = "okay";
+		spi-max-frequency = <500000>; // This really sets frequency
+		ce-gpios = <&gpioa 4 GPIO_ACTIVE_HIGH>;
+		irq-gpios = <&gpioa 2 GPIO_ACTIVE_LOW>;
+		channel-frequency = <16>;
+		rf-power-attenuation = <18>;
+		lna-gain;
+		tx-address = [ e7 e7 e7 e7  ];
+		payload-fixed-size = <32>;
+		rx-datapipes-number = <2>;
+		rx-datapipe0-address = [ e7 e7 e7 e7  ];
+		rx-datapipe1-address = [ de ad de ad  ];
+		payload-ack;
+		payload-crc;
+	};
+};
+
+
+&dma1 {
+	status = "okay";
+};
+
+bs_serial: &usart3 {
+	pinctrl-0 = <&usart3_tx_pb10 &usart3_rx_pb11>;
+
+	dmas = <&dma1 2 (STM32_DMA_PERIPH_TX | STM32_DMA_PRIORITY_HIGH)>,
+	       <&dma1 3 (STM32_DMA_PERIPH_RX | STM32_DMA_PRIORITY_HIGH)>;
+	dma-names = "tx", "rx";
+	pinctrl-names = "default";
+	current-speed = <420000>;
+	status = "okay";
+
+};
+
+&usart1 {
+	pinctrl-0 = <&usart1_tx_remap1_pb6 &usart1_rx_remap1_pb7>;
+	pinctrl-names = "default";
+	current-speed = <115200>;
+	status = "okay";
+};
+
+
+&timers1 {
+	status = "okay";
+	st,prescaler = <99>;
+	counter {
+		status = "okay";
+	};
+
+};
