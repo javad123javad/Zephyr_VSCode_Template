@@ -3,15 +3,13 @@
 	cs-gpios = <&gpio0 4 GPIO_ACTIVE_LOW>;
 
     nrf24l1:nrf24l1@0{
-        compatible = "nordic,nrf24l1";
+        compatible = "nordic,nrf24l01";
         reg = <0x0>;
         spi-max-frequency = <80000000>;
 		addr-width = <4>;
 
         ce-gpios = <&gpio0 1 GPIO_ACTIVE_HIGH>;
         irq-gpios = <&gpio0 2 GPIO_ACTIVE_HIGH>;
-        csn-gpios = <&gpio0 3 GPIO_ACTIVE_HIGH>;
-
         channel-frequency = <16>;
 		rf-power-attenuation = <18>;
 		lna-gain;
