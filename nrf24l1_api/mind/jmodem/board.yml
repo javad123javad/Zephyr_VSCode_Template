@@ -1,0 +1,6 @@
+board:
+  name: jmodem
+  full_name: JModem V1.0
+  vendor: mind
+  socs:
+    - name: stm32f103xb
