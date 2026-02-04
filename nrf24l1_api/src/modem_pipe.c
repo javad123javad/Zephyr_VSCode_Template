@@ -1,0 +1,120 @@
+#include "common.h"
+#include "modem_pipe.h"
+
+
+
+#include <zephyr/usb/usb_device.h>
+#include <zephyr/logging/log.h>
+LOG_MODULE_REGISTER(nrf24l1_radio_pipe);
+
+
+
+/* Buffers for modem backend */
+
+struct modem_data data;
+static struct msgq_data_item_t uart2spiData;
+
+/********* EVENT HANDLER *********/
+
+/* Callback when modem pipe receives data */
+static void modem_pipe_event_handler(struct modem_pipe *pipe, enum modem_pipe_event event,
+                                     void *user_data)
+{
+    uint8_t buf[CONSOLE_RX_BUF_SIZE] = {0};
+    static uint8_t idx = 0;
+    int ret;
+
+    switch (event) {
+    case MODEM_PIPE_EVENT_RECEIVE_READY:
+        /* Read from modem pipe and send directly to console */
+        do {
+            ret = modem_pipe_receive(pipe, buf, sizeof(buf));
+            if (ret > 0) {
+                for(int i = 0; i < ret; i++)
+                {
+                    uart2spiData.buf[idx++] = buf[i];
+                    if(buf[i] == '\r' ||  buf[i] == '\n')
+                    {
+                        uart2spiData.len = idx-1;
+                        uart2spiData.buf[idx - 1] = '\0';  /* Null-terminate for logging */
+
+                        if (k_msgq_put(&usb_spi_msgq, &uart2spiData, K_NO_WAIT) != 0) {
+                            LOG_WRN("Message queue full, dropping message");
+                        }
+                        memset(uart2spiData.buf, 0, sizeof(uart2spiData.buf));
+
+                        idx = 0;
+                    }
+                }
+            }
+        } while (ret > 0);
+        break;
+
+    case MODEM_PIPE_EVENT_TRANSMIT_IDLE:
+    {
+
+        /* Can send more data if available */
+    }
+    break;
+
+    default:
+        break;
+    }
+}
+
+
+/***
+ * Init usb modem pipe
+ */
+int jmodem_pipe_init(const struct device *const usb_uart_dev)
+{
+    int ret = 0;
+
+    if(!usb_uart_dev)
+        return -EINVAL;
+    /* Verify modem device is ready */
+    if (!device_is_ready(usb_uart_dev)) {
+        LOG_ERR("Modem device not ready");
+        return -ENODEV;
+    }
+
+
+    ret = usb_enable(NULL);
+    if (ret != 0) {
+        LOG_ERR("Failed to enable USB");
+        return ret;
+    }
+    init_modem_pipe(usb_uart_dev);
+    return ret;
+
+}
+
+int init_modem_pipe(const struct device *const usb_uart_dev)
+{
+    int ret;
+
+    const struct modem_backend_uart_config uart_backend_config = {
+        .uart = usb_uart_dev,
+        .receive_buf = data.buffers.uart_rx,
+        .receive_buf_size = sizeof(data.buffers.uart_rx),
+        .transmit_buf = data.buffers.uart_tx,
+        .transmit_buf_size = sizeof(data.buffers.uart_tx),
+    };
+
+    data.uart_pipe = modem_backend_uart_init(&data.uart_backend, &uart_backend_config);
+    if (data.uart_pipe == NULL) {
+        LOG_ERR("Failed to initialize modem backend");
+        return -1;
+    }
+
+    modem_pipe_attach(data.uart_pipe, modem_pipe_event_handler, &data);
+
+    ret = modem_pipe_open(data.uart_pipe, K_MSEC(100));
+    if (ret < 0) {
+        LOG_ERR("Failed to open modem pipe");
+        return ret;
+    }
+
+    LOG_INF("Modem pipe initialized and opened");
+    return 0;
+}
