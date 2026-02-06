@@ -5,9 +5,9 @@
 #include <string.h>
 #include <zephyr/modem/backend/uart.h>
 #include <zephyr/modem/pipe.h>
-#define UART_RX_BUF_SIZE    128
-#define UART_TX_BUF_SIZE    128
-#define CONSOLE_RX_BUF_SIZE 128
+#define UART_RX_BUF_SIZE    64
+#define UART_TX_BUF_SIZE    64
+#define CONSOLE_RX_BUF_SIZE 64
 
 struct modem_data {
     struct {
@@ -27,5 +27,6 @@ struct msgq_data_item_t {
 
 extern struct k_msgq usb_spi_msgq;
 extern struct modem_data data;
+extern struct k_poll_signal signal;
 
 #endif //__COMMON_H_

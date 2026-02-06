@@ -13,7 +13,9 @@ LOG_MODULE_REGISTER(nrf24l1_radio_pipe);
 
 struct modem_data data;
 static struct msgq_data_item_t uart2spiData;
+char usb_spi_msgq_buffer[4 * sizeof(struct msgq_data_item_t)];
 
+struct k_msgq usb_spi_msgq;
 /********* EVENT HANDLER *********/
 
 /* Callback when modem pipe receives data */
@@ -21,7 +23,7 @@ static void modem_pipe_event_handler(struct modem_pipe *pipe, enum modem_pipe_ev
                                      void *user_data)
 {
     uint8_t buf[CONSOLE_RX_BUF_SIZE] = {0};
-    static uint8_t idx = 0;
+    uint8_t idx = 0;
     int ret;
 
     switch (event) {
@@ -29,22 +31,30 @@ static void modem_pipe_event_handler(struct modem_pipe *pipe, enum modem_pipe_ev
         /* Read from modem pipe and send directly to console */
         do {
             ret = modem_pipe_receive(pipe, buf, sizeof(buf));
+
             if (ret > 0) {
-                for(int i = 0; i < ret; i++)
-                {
-                    uart2spiData.buf[idx++] = buf[i];
-                    if(buf[i] == '\r' ||  buf[i] == '\n')
-                    {
-                        uart2spiData.len = idx-1;
-                        uart2spiData.buf[idx - 1] = '\0';  /* Null-terminate for logging */
 
-                        if (k_msgq_put(&usb_spi_msgq, &uart2spiData, K_NO_WAIT) != 0) {
-                            LOG_WRN("Message queue full, dropping message");
-                        }
-                        memset(uart2spiData.buf, 0, sizeof(uart2spiData.buf));
+                // for(int i = 0; i < ret && i < CONSOLE_RX_BUF_SIZE; i++)
+                // {
+                //     uart2spiData.buf[idx++] = buf[i];
+                //     if(buf[i] == '\r' ||  buf[i] == '\n')
+                //     {
+                //         // uart2spiData.len = idx-1;
+                //         // uart2spiData.buf[idx - 1] = '\0';  /* Null-terminate for logging */
 
-                        idx = 0;
-                    }
+                //         if (k_msgq_put(&usb_spi_msgq, &uart2spiData, K_NO_WAIT) != 0) {
+                //             LOG_WRN("Message queue full, dropping message");
+                //         }
+                //         memset(uart2spiData.buf, 0, CONSOLE_RX_BUF_SIZE);
+
+                //         idx = 0;
+                //     }
+                // }
+                memcpy(uart2spiData.buf, buf, ret);
+                uart2spiData.len = ret;
+                while (k_msgq_put(&usb_spi_msgq, &uart2spiData, K_NO_WAIT) != 0) {
+                    /* message queue is full: purge old data & try again */
+                    k_msgq_purge(&usb_spi_msgq);
                 }
             }
         } while (ret > 0);
@@ -72,6 +82,7 @@ int jmodem_pipe_init(const struct device *const usb_uart_dev)
 
     if(!usb_uart_dev)
         return -EINVAL;
+
     /* Verify modem device is ready */
     if (!device_is_ready(usb_uart_dev)) {
         LOG_ERR("Modem device not ready");
@@ -84,6 +95,8 @@ int jmodem_pipe_init(const struct device *const usb_uart_dev)
         LOG_ERR("Failed to enable USB");
         return ret;
     }
+    k_msgq_init(&usb_spi_msgq, usb_spi_msgq_buffer, sizeof(struct msgq_data_item_t), 10);
+
     init_modem_pipe(usb_uart_dev);
     return ret;
 
