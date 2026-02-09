@@ -51,6 +51,8 @@ int main(void)
         LOG_ERR("Failed to init LED: %d", ret);
         return ret;
     }
+    ring_buf_init(&ringbuf, sizeof(ring_buffer), ring_buffer);
+
     // Config radio PHY
     ret = radio_init(nrf_dev);
     if(ret)
@@ -64,24 +66,11 @@ int main(void)
     {
         LOG_ERR("Unable to init pip: %d", ret);
     }
-    struct msgq_data_item_t Rxdata;
 
     for(;;)
     {
 
-        if(!k_msgq_get(&usb_spi_msgq, &Rxdata, K_MSEC(100)))
-        {
-            LOG_INF("[SEND OVER SPI]: %s\r\n", Rxdata.buf);
-
-            ret =  rf_send_async(nrf_dev, (uint8_t*)Rxdata.buf, Rxdata.len, &signal);
-
-            if(ret)
-            {
-                LOG_ERR("Failed to send data over RF Link! err: %d", ret);
-            }
-        } else {
-            radio_listen(nrf_dev);
-        }
+        k_sleep(K_FOREVER);
 
     }
 

@@ -8,6 +8,8 @@
 #define UART_RX_BUF_SIZE    64
 #define UART_TX_BUF_SIZE    64
 #define CONSOLE_RX_BUF_SIZE 64
+#define RF_SPI_BUF_SIZE     32
+#define RING_BUF_SIZE       2048
 
 struct modem_data {
     struct {
@@ -25,8 +27,8 @@ struct msgq_data_item_t {
 };
 
 
-extern struct k_msgq usb_spi_msgq;
 extern struct modem_data data;
-extern struct k_poll_signal signal;
+extern struct ring_buf ringbuf;
+extern uint8_t ring_buffer[RING_BUF_SIZE];
 
 #endif //__COMMON_H_
