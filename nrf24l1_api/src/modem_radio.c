@@ -5,12 +5,8 @@
 LOG_MODULE_DECLARE(nrf24l1_radio, CONFIG_KERNEL_LOG_LEVEL);
 
 
-static struct k_poll_signal signal;
-static struct k_poll_event events[1] = {
-    K_POLL_EVENT_INITIALIZER(K_POLL_TYPE_SIGNAL,
-    K_POLL_MODE_NOTIFY_ONLY,
-    &signal),
-};
+struct k_poll_signal signal;
+
 
 void recv_async_cb(const struct device *dev, uint8_t *rfdata, uint16_t size)
 {
@@ -56,7 +52,6 @@ int radio_init(const struct device *const pnrf_dev)
         return -1;
     }
     LOG_INF("%s is ready to use.\n", pnrf_dev->name);
-    k_poll_signal_init(&signal);
     k_tid_t tx_tid = k_thread_create(&tx_thread_data, tx_thread_stack,
                                      K_THREAD_STACK_SIZEOF(tx_thread_stack),
                                      rf_send_cb,

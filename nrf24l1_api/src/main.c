@@ -44,6 +44,7 @@ const struct device *const nrf_dev = DEVICE_DT_GET(DEFAULT_RADIO_NODE);
 int main(void)
 {
     int ret = 0;
+    k_poll_signal_init(&signal);
 
     ret = led_init(&led);
     if(ret)
@@ -67,10 +68,28 @@ int main(void)
         LOG_ERR("Unable to init pip: %d", ret);
     }
 
+    struct k_poll_event events[1] = {
+        K_POLL_EVENT_INITIALIZER(K_POLL_TYPE_SIGNAL,
+        K_POLL_MODE_NOTIFY_ONLY,
+        &signal),
+    };
     for(;;)
     {
+        k_poll(events, 1, K_FOREVER);
 
-        k_sleep(K_FOREVER);
+        int signaled, result;
+
+        k_poll_signal_check(&signal, &signaled, &result);
+
+        if (signaled && (result == 0)) {
+            gpio_pin_toggle_dt(&led);
+            // A-OK!
+        } else {
+            // weird error
+        }
+        k_poll_signal_reset(&signal);
+        events[0].state = K_POLL_STATE_NOT_READY;
+        // k_sleep(K_FOREVER);
 
     }
 
