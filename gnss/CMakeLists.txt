@@ -5,4 +5,9 @@ cmake_minimum_required(VERSION 3.20.0)
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(gnss_sample)
 
-target_sources(app PRIVATE src/main.c)
+target_sources(app PRIVATE src/main.c 
+src/modem_radio.c src/modem_radio.h
+src/modem_gnss.c  src/modem_gnss.h
+src/modem_pipe.c  src/modem_pipe.h
+
+)
