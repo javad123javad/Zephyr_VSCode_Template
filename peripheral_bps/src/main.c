@@ -24,18 +24,12 @@ static const struct bt_data ad[] = {
     BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
     BT_DATA_BYTES(BT_DATA_UUID16_ALL,
     BT_UUID_16_ENCODE(BT_UUID_BPS_VAL)),
-#if defined(CONFIG_BT_EXT_ADV)
-    BT_DATA(BT_DATA_NAME_COMPLETE, CONFIG_BT_DEVICE_NAME,
-    sizeof(CONFIG_BT_DEVICE_NAME) - 1),
-#endif /* CONFIG_BT_EXT_ADV */
 };
 
-#if !defined(CONFIG_BT_EXT_ADV)
 static const struct bt_data sd[] = {
     BT_DATA(BT_DATA_NAME_COMPLETE, CONFIG_BT_DEVICE_NAME,
     sizeof(CONFIG_BT_DEVICE_NAME) - 1),
 };
-#endif /* !CONFIG_BT_EXT_ADV */
 
 /* -----------------------------------------------------------------------
  * State machine
@@ -230,7 +224,6 @@ int main(void)
         return 0;
     }   /* ← same pattern as bt_hrs_cb_register() */
 
-#if !defined(CONFIG_BT_EXT_ADV)
     printk("Starting Legacy Advertising (connectable and scannable)\n");
     err = bt_le_adv_start(BT_LE_ADV_CONN_FAST_1, ad, ARRAY_SIZE(ad),
                           sd, ARRAY_SIZE(sd));
@@ -239,47 +232,7 @@ int main(void)
         return 0;
     }
 
-#else /* CONFIG_BT_EXT_ADV */
-    struct bt_le_adv_param adv_param = {
-        .id = BT_ID_DEFAULT,
-        .sid = 0U,
-        .secondary_max_skip = 0U,
-        .options = (BT_LE_ADV_OPT_EXT_ADV | BT_LE_ADV_OPT_CONN |
-                    BT_LE_ADV_OPT_CODED),
-        .interval_min = BT_GAP_ADV_FAST_INT_MIN_2,
-        .interval_max = BT_GAP_ADV_FAST_INT_MAX_2,
-        .peer = NULL,
-    };
-    struct bt_le_ext_adv *adv;
 
-    printk("Creating a Coded PHY connectable non-scannable advertising set\n");
-    err = bt_le_ext_adv_create(&adv_param, NULL, &adv);
-    if (err) {
-        printk("Failed to create Coded PHY extended advertising set (err %d)\n", err);
-
-        printk("Creating a non-Coded PHY connectable non-scannable advertising set\n");
-        adv_param.options &= ~BT_LE_ADV_OPT_CODED;
-        err = bt_le_ext_adv_create(&adv_param, NULL, &adv);
-        if (err) {
-            printk("Failed to create extended advertising set (err %d)\n", err);
-            return 0;
-        }
-    }
-
-    printk("Setting extended advertising data\n");
-    err = bt_le_ext_adv_set_data(adv, ad, ARRAY_SIZE(ad), NULL, 0);
-    if (err) {
-        printk("Failed to set extended advertising data (err %d)\n", err);
-        return 0;
-    }
-
-    printk("Starting Extended Advertising (connectable non-scannable)\n");
-    err = bt_le_ext_adv_start(adv, BT_LE_EXT_ADV_START_DEFAULT);
-    if (err) {
-        printk("Failed to start extended advertising set (err %d)\n", err);
-        return 0;
-    }
-#endif /* CONFIG_BT_EXT_ADV */
 
     printk("Advertising successfully started\n");
 
@@ -290,37 +243,35 @@ int main(void)
     }
     blink_start();
 #endif /* HAS_LED */
-
+    bool is_connected = false;
     while (1) {
         k_sleep(K_SECONDS(3));
 
-        bps_notify();
 
         if (atomic_test_and_clear_bit(state, STATE_CONNECTED)) {
+            is_connected = true;
 #if defined(HAS_LED)
             blink_stop();
 #endif /* HAS_LED */
         } else if (atomic_test_and_clear_bit(state, STATE_DISCONNECTED)) {
-#if !defined(CONFIG_BT_EXT_ADV)
             printk("Starting Legacy Advertising (connectable and scannable)\n");
             err = bt_le_adv_start(BT_LE_ADV_CONN_FAST_1, ad,
                                   ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
+            is_connected = false;
             if (err) {
                 printk("Advertising failed to start (err %d)\n", err);
                 return 0;
             }
-#else /* CONFIG_BT_EXT_ADV */
-            printk("Starting Extended Advertising (connectable non-scannable)\n");
-            err = bt_le_ext_adv_start(adv, BT_LE_EXT_ADV_START_DEFAULT);
-            if (err) {
-                printk("Failed to start extended advertising set (err %d)\n",
-                       err);
-                return 0;
-            }
-#endif /* CONFIG_BT_EXT_ADV */
+
+
 #if defined(HAS_LED)
             blink_start();
 #endif /* HAS_LED */
+        }
+        if(is_connected)
+        {
+            bps_notify();
+
         }
     }
 
