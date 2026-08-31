@@ -11,11 +11,12 @@
 #include <zephyr/net/wifi_mgmt.h>
 #include <errno.h>
 
-#define WIFI_SSID     "Proximus-Home-E9C0"
-#define WIFI_PASSWORD "wdju9h4ce23b7"
+//#define WIFI_SSID     "Proximus-Home-E9C0"
+//#define WIFI_PASSWORD "wdju9h4ce23b7"
 
+#define WIFI_SSID     "Mind-Wifi"
+#define WIFI_PASSWORD "fRGY7VKD5hSsHxn5"
 #define HTTP_HOST    "httpbin.org"
-#define HTTP_IP      "18.233.255.213"
 #define HTTP_PORT    80
 #define HTTP_REQUEST "GET /get HTTP/1.0\r\nHost: " HTTP_HOST "\r\nConnection: close\r\n\r\n"
 
@@ -64,13 +65,28 @@ static int http_get(void)
 	zsock_setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
 	zsock_setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
 
-	struct sockaddr_in addr = {0};
+	struct zsock_addrinfo hints = {
+		.ai_family   = AF_INET,
+		.ai_socktype = SOCK_STREAM,
+	};
+	struct zsock_addrinfo *res;
+	int dns_ret = zsock_getaddrinfo(HTTP_HOST, NULL, &hints, &res);
 
-	addr.sin_family = AF_INET;
-	addr.sin_port   = htons(HTTP_PORT);
-	zsock_inet_pton(AF_INET, HTTP_IP, &addr.sin_addr);
+	if (dns_ret != 0) {
+		printk("DNS lookup for %s failed: %d\n", HTTP_HOST, dns_ret);
+		zsock_close(sock);
+		return -1;
+	}
 
-	printk("Connecting to %s:%d...\n", HTTP_HOST, HTTP_PORT);
+	struct sockaddr_in addr = *(struct sockaddr_in *)res->ai_addr;
+
+	addr.sin_port = htons(HTTP_PORT);
+	zsock_freeaddrinfo(res);
+
+	char addr_str[INET_ADDRSTRLEN];
+
+	zsock_inet_ntop(AF_INET, &addr.sin_addr, addr_str, sizeof(addr_str));
+	printk("Connecting to %s:%d (%s)...\n", HTTP_HOST, HTTP_PORT, addr_str);
 	if (zsock_connect(sock, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
 		printk("Connect failed: errno=%d\n", errno);
 		zsock_close(sock);
