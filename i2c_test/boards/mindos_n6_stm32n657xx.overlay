@@ -1,0 +1,92 @@
+/*
+ * BME280 environmental sensor (temperature/pressure/humidity) wired
+ * to the io_i2c (i2c2) header. Found at address 0x76 (SDO -> GND)
+ * during the bus scan.
+ *
+ * PCA9557PW,118 8-bit I2C GPIO expander wired to io_i2c, found at
+ * address 0x19 (address pins: A0=VCC, A1=GND, A2=GND). Uses the
+ * out-of-tree "nxp,pca9557" driver in ../pca9557_driver - see that
+ * directory's README for why Zephyr's in-tree "nxp,pca95xx" driver
+ * does not work with this part.
+ *
+ * MCP2515 SPI CAN controller wired to the io_spi (spi2) header.
+ * Chip select uses the hardware NSS pin (PA11) already wired up in
+ * spi2's pinctrl; INT is on PB3.
+ *
+ * MAX98357A I2S amp/DAC wired to the io_i2s (i2s1) header. i2s1 is
+ * already enabled by the board, but its DMA channels come from
+ * gpdma1, which the SoC devicetree leaves "disabled" by default and
+ * no board file turns on - without this, the I2S driver fails to
+ * build (DEVICE_DT_GET() on a DMA channel device that doesn't exist).
+ *
+ * Two MIC2026-1YM USB port power switches (one per USB port). Each
+ * has an EN input (PE1/PE3, active-high, drive high to turn on the
+ * 5V switch) and an OCS/FLAG# output (PB5/PB14, active-low, asserted
+ * on overcurrent/thermal fault - the closest available signal to
+ * "is 5V actually present and healthy"). Exposed via the standard
+ * zephyr,user node rather than a custom binding, since these are
+ * just plain GPIOs with no protocol/chip driver involved.
+ *
+ * USB1 (usbotg_hs1 / zephyr_udc0) is also exercised as a USB CDC-ACM
+ * serial device (see usb_device_test.c) - it shares the same physical
+ * connector as the MIC2026-switched 5V above. usb_power_test.c always
+ * drives that port's EN high, so when plugging this port into a PC,
+ * physically isolate/unpower the MIC2026 first to avoid two 5V
+ * sources fighting on the same VBUS pin.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <freq.h>
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
+&gpdma1 {
+	status = "okay";
+};
+
+/ {
+	zephyr,user {
+		usb1-en-gpios = <&gpioe 1 GPIO_ACTIVE_HIGH>;
+		usb1-ocs-gpios = <&gpiob 5 GPIO_ACTIVE_LOW>;
+		usb2-en-gpios = <&gpioe 3 GPIO_ACTIVE_HIGH>;
+		usb2-ocs-gpios = <&gpiob 14 GPIO_ACTIVE_LOW>;
+	};
+};
+
+&zephyr_udc0 {
+	cdc_acm_uart0 {
+		compatible = "zephyr,cdc-acm-uart";
+		label = "Zephyr USB CDC-ACM";
+	};
+};
+
+&i2c2 {
+	bme280: bme280@76 {
+		compatible = "bosch,bme280";
+		reg = <0x76>;
+	};
+
+	io_expander: pca9557@19 {
+		compatible = "nxp,pca9557";
+		reg = <0x19>;
+		gpio-controller;
+		#gpio-cells = <2>;
+		ngpios = <8>;
+	};
+};
+
+&spi2 {
+	mcp2515: can@0 {
+		compatible = "microchip,mcp2515";
+		reg = <0x0>;
+		spi-max-frequency = <DT_FREQ_M(1)>;
+		osc-freq = <DT_FREQ_M(8)>;
+		int-gpios = <&gpiob 3 GPIO_ACTIVE_LOW>;
+		bitrate = <500000>;
+		status = "okay";
+
+		can-transceiver {
+			max-bitrate = <1000000>;
+		};
+	};
+};

@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# Becomes this app's Kconfig root (an app's own ./Kconfig, if present,
+# is used instead of $ZEPHYR_BASE/Kconfig - see cmake/modules/kconfig.cmake).
+# Needed only to pull in the shared USB sample options
+# (SAMPLE_USBD_PID etc., used by usb_device_test.c via
+# samples/subsys/usb/common/) that aren't otherwise reachable from an
+# out-of-tree app; still sources the normal Kconfig.zephyr tree below
+# so nothing else is affected.
+
+source "samples/subsys/usb/common/Kconfig.sample_usbd"
+
+source "Kconfig.zephyr"

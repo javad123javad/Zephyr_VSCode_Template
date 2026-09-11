@@ -1,0 +1,44 @@
+# PCA9557 GPIO expander configuration options
+#
+# SPDX-License-Identifier: Apache-2.0
+
+menuconfig GPIO_PCA9557
+	bool "PCA9557 I2C-based GPIO expander"
+	default y
+	depends on DT_HAS_NXP_PCA9557_ENABLED
+	depends on I2C
+	help
+	  Enable driver for the PCA9557 8-bit I2C GPIO expander.
+
+	  This is a separate driver from GPIO_PCA95XX: that driver's
+	  register map (paired port0/port1 registers) targets the 16-bit
+	  PCA9535/39/55 family and does not work with the PCA9557, which
+	  is an 8-bit, single-port part with a different, shorter map
+	  (0x00 Input, 0x01 Output, 0x02 Polarity Inversion, 0x03
+	  Configuration).
+
+	  This driver ships as a ZEPHYR_EXTRA_MODULES-provided
+	  out-of-tree module (see pca9557_driver/). Its module.yml must
+	  declare "build.settings.dts_root: ." for DT_HAS_NXP_PCA9557_ENABLED
+	  above to work at all - without it, devicetree parsing still
+	  finds the binding fine, but the separate Kconfig-side
+	  DT_HAS_<COMPAT>_ENABLED generator silently doesn't, and this
+	  driver never gets compiled in.
+
+if GPIO_PCA9557
+
+config GPIO_PCA9557_INIT_PRIORITY
+	int "Init priority"
+	default I2C_INIT_PRIORITY
+	help
+	  Device driver initialization priority.
+
+config GPIO_PCA9557_INTERRUPT
+	bool "Interrupt enable"
+	help
+	  Enable interrupt support in the PCA9557 driver, using the
+	  chip's shared INT output pin (interrupt-gpios). The PCA9557
+	  has no per-pin interrupt mask register, so any configured
+	  input pin contributes to the single shared interrupt line.
+
+endif # GPIO_PCA9557

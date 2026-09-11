@@ -1,0 +1,36 @@
+# SPDX-License-Identifier: Apache-2.0
+
+description: |
+  NXP/TI PCA9557 8-bit I2C GPIO expander.
+
+  This is a distinct binding/driver from "nxp,pca95xx": that one
+  targets the 16-bit PCA9535/39/55 family (paired port0/port1
+  registers at offsets 0x00-0x07) and does not work with the PCA9557,
+  which is an 8-bit, single-port part with a different, shorter
+  register map (0x00 Input, 0x01 Output, 0x02 Polarity Inversion,
+  0x03 Configuration).
+
+compatible: "nxp,pca9557"
+
+include: [gpio-controller.yaml, i2c-device.yaml]
+
+properties:
+  interrupt-gpios:
+    type: phandle-array
+    description: |
+      INT pin (active-low, open-drain). The PCA9557 asserts this
+      whenever any input pin changes state; there is no per-pin
+      interrupt mask register on this part.
+
+  "#gpio-cells":
+    const: 2
+
+  # ngpios is inherited from gpio-controller.yaml (default 32);
+  # dtschema refuses to have this binding silently override that
+  # default, so it's not redeclared here - the PCA9557 always has
+  # exactly 8 GPIO pins (P0-P7), so set "ngpios = <8>;" explicitly in
+  # nodes using this binding.
+
+gpio-cells:
+  - pin
+  - flags
