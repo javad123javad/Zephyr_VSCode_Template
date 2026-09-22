@@ -1,0 +1,100 @@
+/*
+ * ST7796S 480x320 color TFT (SPI) with an XPT2046 resistive touch
+ * controller sharing the same SPI bus (spi3), for LVGL.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <zephyr/dt-bindings/mipi_dbi/mipi_dbi.h>
+#include <zephyr/dt-bindings/spi/spi.h>
+
+/ {
+	chosen {
+		zephyr,display = &st7796s;
+		zephyr,touch = &touch_panel;
+	};
+
+	/* Backlight tied on at boot; add a GPIO-controlled brightness
+	 * later if needed.
+	 */
+	backlight_hog {
+		gpio-hog;
+		gpios = <&gpio1 1 GPIO_ACTIVE_HIGH>; /* GPIO33 */
+		output-high;
+	};
+
+	mipi_dbi: mipi_dbi {
+		compatible = "zephyr,mipi-dbi-spi";
+		status = "okay";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		spi-dev = <&spi3>;
+		dc-gpios = <&gpio0 4 GPIO_ACTIVE_HIGH>;
+		reset-gpios = <&gpio1 0 GPIO_ACTIVE_LOW>; /* GPIO32 */
+		write-only;
+
+		st7796s: st7796s@0 {
+			compatible = "sitronix,st7796s";
+			status = "okay";
+			reg = <0>;
+			mipi-max-frequency = <20000000>;
+			mipi-hold-cs;
+			width = <480>;
+			height = <320>;
+			invert-mode = "1-dot";
+			dfc = [80 02 3b];
+			pwr2 = <0x06>;
+			pwr3 = <0xa7>;
+			vcmpctl = <0x18>;
+			doca = [40 8a 00 00 29 19 a5 33];
+			pgc = [f0 09 0b 06 04 15 2f 54 42 3c 17 14 18 1b];
+			ngc = [e0 09 0b 06 04 03 2b 43 42 3b 16 14 17 1b];
+			madctl = <0x28>;
+			color-invert;
+			rgb-is-inverted;
+		};
+	};
+};
+
+/* Display CS on the (former hardware-CSEL) GPIO5 pin; touch gets its own
+ * CS on GPIO25. MOSI/MISO/SCLK stay on the board's default spi3 pins and
+ * are shared between the two devices.
+ */
+&pinctrl {
+	spim3_shared: spim3_shared {
+		group1 {
+			pinmux = <SPIM3_MISO_GPIO19>, <SPIM3_SCLK_GPIO18>;
+		};
+		group2 {
+			pinmux = <SPIM3_MOSI_GPIO23>;
+			output-low;
+		};
+	};
+};
+
+&spi2 {
+	status = "disabled";
+};
+
+&spi3 {
+	pinctrl-0 = <&spim3_shared>;
+	cs-gpios = <&gpio0 5 GPIO_ACTIVE_LOW>, <&gpio0 25 GPIO_ACTIVE_LOW>;
+
+	touch_panel: touch@1 {
+		compatible = "xptek,xpt2046";
+		reg = <1>;
+		spi-max-frequency = <1000000>;
+		int-gpios = <&gpio0 26 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+		display = <&st7796s>;
+		touchscreen-size-x = <480>;
+		touchscreen-size-y = <320>;
+		/* Raw ADC calibration; typical starting values for a
+		 * resistive panel this size. Adjust after testing on
+		 * hardware (see README).
+		 */
+		min-x = <200>;
+		max-x = <3900>;
+		min-y = <200>;
+		max-y = <3900>;
+	};
+};

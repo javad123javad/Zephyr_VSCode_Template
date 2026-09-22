@@ -1,0 +1,115 @@
+/*
+ * ST7796S 480x320 color TFT (SPI) with an XPT2046 resistive touch
+ * controller sharing the same SPI bus (spi2), for LVGL, on ESP32-S3.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <zephyr/dt-bindings/mipi_dbi/mipi_dbi.h>
+#include <zephyr/dt-bindings/spi/spi.h>
+
+/ {
+	chosen {
+		zephyr,display = &st7796s;
+		zephyr,touch = &touch_panel;
+	};
+
+	/* Backlight tied on at boot; add a GPIO-controlled brightness
+	 * later if needed.
+	 */
+	backlight_hog {
+		gpio-hog;
+		gpios = <&gpio0 6 GPIO_ACTIVE_HIGH>;
+		output-high;
+	};
+
+	mipi_dbi: mipi_dbi {
+		compatible = "zephyr,mipi-dbi-spi";
+		status = "okay";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		spi-dev = <&spi2>;
+		dc-gpios = <&gpio1 9 GPIO_ACTIVE_HIGH>;
+		reset-gpios = <&gpio1 7 GPIO_ACTIVE_LOW>;
+		write-only;
+
+		st7796s: st7796s@0 {
+			compatible = "sitronix,st7796s";
+			status = "okay";
+			reg = <0>;
+			mipi-max-frequency = <30000000>;
+			width = <480>;
+			height = <320>;
+			invert-mode = "1-dot";
+			frmctl1 = [80 10];
+			bpc = [1f 50 00 20];
+			dfc = [8a 07 3b];
+			pwr1 = [80 64];
+			pwr2 = <0x13>;
+			pwr3 = <0xa7>;
+			vcmpctl = <0x09>;
+			doca = [40 8a 00 00 29 19 a5 38];
+			pgc = [f0 06 0b 07 06 05 2e 33 47 3a 17 16 2e 31];
+			ngc = [f0 09 0d 09 08 23 2e 33 46 38 13 13 2c 32];
+			madctl = <0x28>;
+			/* This panel shows RGB as BGR; flips the reported
+			 * pixel format so colors come out correct (was blue
+			 * on black in simulation, green on purple on the
+			 * real panel without this).
+			 */
+			rgb-is-inverted;
+		};
+	};
+};
+
+/* Drop CSEL from the default spim2 pinmux group (we drive both chip
+ * selects as plain GPIOs via cs-gpios instead, since two devices share
+ * this bus). SCLK/MOSI/MISO stay on the board's default spi2 pins.
+ */
+&pinctrl {
+	spim2_shared: spim2_shared {
+		group1 {
+			pinmux = <SPIM2_MISO_GPIO13>, <SPIM2_SCLK_GPIO12>;
+		};
+		group2 {
+			pinmux = <SPIM2_MOSI_GPIO11>;
+			output-low;
+		};
+	};
+};
+
+&spi2 {
+	pinctrl-0 = <&spim2_shared>;
+	cs-gpios = <&gpio1 10 GPIO_ACTIVE_LOW>, <&gpio0 7 GPIO_ACTIVE_LOW>;
+
+	touch_panel: touch@1 {
+		compatible = "xptek,xpt2046";
+		reg = <1>;
+		spi-max-frequency = <1000000>;
+		int-gpios = <&gpio0 8 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+		display = <&st7796s>;
+		touchscreen-size-x = <480>;
+		touchscreen-size-y = <320>;
+		/* This panel's touch axes are physically swapped and both
+		 * mirrored relative to the display. output-width/height for
+		 * the post-swap rescale come from the `display` phandle
+		 * above.
+		 */
+		swapped-x-y;
+		inverted-x;
+		screen-width = <480>;
+		inverted-y;
+		screen-height = <320>;
+		/* Raw ADC calibration, verified on hardware. */
+		min-x = <200>;
+		max-x = <3900>;
+		min-y = <200>;
+		max-y = <3900>;
+		/* Average several ADC reads per touch to smooth out resistive
+		 * panel jitter; without this, small position noise on a tap
+		 * gets misread by LVGL as a scroll-drag, which cancels click
+		 * events on scrollable containers (e.g. the Wi-Fi scan list).
+		 */
+		reads = <8>;
+	};
+};

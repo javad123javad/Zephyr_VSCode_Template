@@ -1,0 +1,11 @@
+/*
+ * native_sim already wires zephyr,display/zephyr,touch to an SDL window
+ * and mouse-as-touch by default; just match the real panel's resolution.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+&sdl_dc {
+	height = <320>;
+	width = <480>;
+};
