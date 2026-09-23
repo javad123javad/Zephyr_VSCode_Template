@@ -12,13 +12,21 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <zephyr/settings/settings.h>
+
 #include <lvgl.h>
 
 #include "ui.h"
 #include "wifi.h"
 
-/* Change to your local UTC offset; also adjustable live from the Time zone menu. */
-#define DEFAULT_TZ_OFFSET_HOURS 0
+/* Change to your local UTC offset; also adjustable live from the Time zone
+ * menu, which persists the chosen value to flash. Units are quarter-hours
+ * (15 min) so half-hour and 45-minute zones (e.g. +5:30, +5:45) are
+ * representable, not just whole hours.
+ */
+#define DEFAULT_TZ_OFFSET_QUARTERS 0
+#define TZ_OFFSET_QUARTERS_MIN (-12 * 4)
+#define TZ_OFFSET_QUARTERS_MAX (14 * 4)
 
 /* Clock screen */
 static lv_obj_t *scr_clock;
@@ -32,7 +40,8 @@ static lv_obj_t *scr_menu;
 
 /* Time zone screen */
 static lv_obj_t *scr_tz;
-static lv_obj_t *tz_spinbox;
+static lv_obj_t *tz_offset_label;
+static int8_t tz_offset_quarters = DEFAULT_TZ_OFFSET_QUARTERS;
 
 /* Wi-Fi screen */
 #define WIFI_RESULTS_PER_PAGE 3
@@ -103,21 +112,80 @@ static void menu_back_click_cb(lv_event_t *e)
     switch_screen(scr_clock);
 }
 
+static void update_tz_offset_label(void)
+{
+    int quarters = tz_offset_quarters;
+    const char *sign = quarters < 0 ? "-" : "+";
+    int abs_quarters = quarters < 0 ? -quarters : quarters;
+
+    lv_label_set_text_fmt(tz_offset_label, "%s%d:%02d", sign, abs_quarters / 4,
+                          (abs_quarters % 4) * 15);
+}
+
+static void save_tz_offset(void)
+{
+    int ret = settings_save_one("tz/offset_quarters", &tz_offset_quarters,
+                                sizeof(tz_offset_quarters));
+
+    if (ret != 0) {
+        printf("Failed to save timezone offset: %d\n", ret);
+    }
+}
+
+static int tz_settings_set(const char *name, size_t len, settings_read_cb read_cb, void *cb_arg)
+{
+    if (settings_name_steq(name, "offset_quarters", NULL) &&
+        len == sizeof(tz_offset_quarters)) {
+        read_cb(cb_arg, &tz_offset_quarters, sizeof(tz_offset_quarters));
+    }
+    return 0;
+}
+
+SETTINGS_STATIC_HANDLER_DEFINE(tz, "tz", NULL, tz_settings_set, NULL, NULL);
+
+static void load_tz_offset(void)
+{
+    settings_subsys_init();
+    settings_load_subtree("tz");
+}
+
+static bool tz_offset_dirty;
+
 static void tz_minus_click_cb(lv_event_t *e)
 {
     ARG_UNUSED(e);
-    lv_spinbox_decrement(tz_spinbox);
+
+    if (tz_offset_quarters > TZ_OFFSET_QUARTERS_MIN) {
+        tz_offset_quarters--;
+        tz_offset_dirty = true;
+        update_tz_offset_label();
+    }
 }
 
 static void tz_plus_click_cb(lv_event_t *e)
 {
     ARG_UNUSED(e);
-    lv_spinbox_increment(tz_spinbox);
+
+    if (tz_offset_quarters < TZ_OFFSET_QUARTERS_MAX) {
+        tz_offset_quarters++;
+        tz_offset_dirty = true;
+        update_tz_offset_label();
+    }
 }
 
 static void tz_back_click_cb(lv_event_t *e)
 {
     ARG_UNUSED(e);
+
+    /* Save on the way out rather than on every tap: holding +/- to
+     * repeat-step can fire many times per second, and the offset only
+     * needs to be persisted once the user is done choosing it.
+     */
+    if (tz_offset_dirty) {
+        save_tz_offset();
+        tz_offset_dirty = false;
+    }
+
     switch_screen(scr_menu);
 }
 
@@ -191,6 +259,14 @@ static void wifi_forget_click_cb(lv_event_t *e)
     }
 
     wifi_forget(entry.ssid, entry.ssid_len);
+    render_wifi_page();
+}
+
+static void wifi_forget_all_click_cb(lv_event_t *e)
+{
+    ARG_UNUSED(e);
+
+    wifi_forget_all();
     render_wifi_page();
 }
 
@@ -381,7 +457,7 @@ static void build_tz_screen(void)
     lv_obj_t *title = lv_label_create(scr_tz);
 
     lv_obj_set_style_text_font(title, &lv_font_montserrat_24, LV_PART_MAIN);
-    lv_label_set_text(title, "UTC offset (hours)");
+    lv_label_set_text(title, "UTC offset (H:MM)");
 
     lv_obj_t *row = lv_obj_create(scr_tz);
 
@@ -395,6 +471,7 @@ static void build_tz_screen(void)
 
     lv_obj_set_size(minus_btn, 70, 70);
     lv_obj_add_event_cb(minus_btn, tz_minus_click_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(minus_btn, tz_minus_click_cb, LV_EVENT_LONG_PRESSED_REPEAT, NULL);
 
     lv_obj_t *minus_label = lv_label_create(minus_btn);
 
@@ -402,17 +479,17 @@ static void build_tz_screen(void)
     lv_obj_center(minus_label);
     lv_label_set_text(minus_label, LV_SYMBOL_MINUS);
 
-    tz_spinbox = lv_spinbox_create(row);
-    lv_spinbox_set_range(tz_spinbox, -12, 14);
-    lv_spinbox_set_digit_format(tz_spinbox, 2, 0);
-    lv_spinbox_set_value(tz_spinbox, DEFAULT_TZ_OFFSET_HOURS);
-    lv_obj_set_style_text_font(tz_spinbox, &lv_font_montserrat_24, LV_PART_MAIN);
-    lv_obj_set_size(tz_spinbox, 100, 60);
+    tz_offset_label = lv_label_create(row);
+    lv_obj_set_style_text_font(tz_offset_label, &lv_font_montserrat_24, LV_PART_MAIN);
+    lv_obj_set_size(tz_offset_label, 100, 60);
+    lv_obj_set_style_text_align(tz_offset_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    update_tz_offset_label();
 
     lv_obj_t *plus_btn = lv_button_create(row);
 
     lv_obj_set_size(plus_btn, 70, 70);
     lv_obj_add_event_cb(plus_btn, tz_plus_click_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(plus_btn, tz_plus_click_cb, LV_EVENT_LONG_PRESSED_REPEAT, NULL);
 
     lv_obj_t *plus_label = lv_label_create(plus_btn);
 
@@ -443,15 +520,28 @@ static void build_wifi_screen(void)
 
     lv_obj_t *rescan_btn = lv_button_create(scr_wifi);
 
-    lv_obj_set_size(rescan_btn, 150, 50);
+    lv_obj_set_size(rescan_btn, 110, 50);
     lv_obj_align(rescan_btn, LV_ALIGN_TOP_RIGHT, -16, 16);
     lv_obj_add_event_cb(rescan_btn, wifi_rescan_click_cb, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *rescan_label = lv_label_create(rescan_btn);
 
-    lv_obj_set_style_text_font(rescan_label, &lv_font_montserrat_24, LV_PART_MAIN);
+    lv_obj_set_style_text_font(rescan_label, &lv_font_montserrat_14, LV_PART_MAIN);
     lv_obj_center(rescan_label);
     lv_label_set_text(rescan_label, LV_SYMBOL_REFRESH " Rescan");
+
+    lv_obj_t *forget_all_btn = lv_button_create(scr_wifi);
+
+    lv_obj_set_size(forget_all_btn, 110, 50);
+    lv_obj_align(forget_all_btn, LV_ALIGN_TOP_RIGHT, -134, 16);
+    lv_obj_set_style_bg_color(forget_all_btn, lv_palette_main(LV_PALETTE_RED), LV_PART_MAIN);
+    lv_obj_add_event_cb(forget_all_btn, wifi_forget_all_click_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *forget_all_label = lv_label_create(forget_all_btn);
+
+    lv_obj_set_style_text_font(forget_all_label, &lv_font_montserrat_14, LV_PART_MAIN);
+    lv_obj_center(forget_all_label);
+    lv_label_set_text(forget_all_label, "Forget All");
 
     wifi_scan_status_label = lv_label_create(scr_wifi);
     lv_obj_set_style_text_font(wifi_scan_status_label, &lv_font_montserrat_14, LV_PART_MAIN);
@@ -541,6 +631,8 @@ static void build_password_screen(void)
 
 void ui_init(void)
 {
+    load_tz_offset();
+
     build_clock_screen();
     build_menu_screen();
     build_tz_screen();
@@ -572,7 +664,7 @@ void ui_tick(int64_t epoch_s, enum wifi_net_status status)
         return;
     }
 
-    time_t local_time = (time_t)(epoch_s + lv_spinbox_get_value(tz_spinbox) * 3600);
+    time_t local_time = (time_t)(epoch_s + (int64_t)tz_offset_quarters * 15 * 60);
     struct tm tm_time;
     char buf[32];
 

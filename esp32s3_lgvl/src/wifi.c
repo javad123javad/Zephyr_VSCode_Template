@@ -185,6 +185,15 @@ void wifi_forget(const char *ssid, size_t ssid_len)
 	}
 }
 
+void wifi_forget_all(void)
+{
+	int ret = wifi_credentials_delete_all();
+
+	if (ret != 0) {
+		LOG_ERR("Failed to forget all networks: %d", ret);
+	}
+}
+
 static void handle_scan_result(struct net_mgmt_event_callback *cb)
 {
 	const struct wifi_scan_result *entry = (const struct wifi_scan_result *)cb->info;

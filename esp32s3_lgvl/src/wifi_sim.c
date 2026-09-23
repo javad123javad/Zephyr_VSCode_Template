@@ -137,3 +137,8 @@ void wifi_forget(const char *ssid, size_t ssid_len)
 		sim_saved[idx] = false;
 	}
 }
+
+void wifi_forget_all(void)
+{
+	memset(sim_saved, 0, sizeof(sim_saved));
+}

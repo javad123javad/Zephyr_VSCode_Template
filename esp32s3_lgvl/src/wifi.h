@@ -55,4 +55,12 @@ bool wifi_is_saved(const char *ssid, size_t ssid_len);
 /* Deletes stored credentials for ssid, if any. */
 void wifi_forget(const char *ssid, size_t ssid_len);
 
+/* Deletes every stored network's credentials. CONNECT_STORED tries every
+ * saved network as a candidate on each attempt, so stale entries for
+ * networks that are out of range at the current location (and therefore
+ * cannot be individually forgotten from the scan list) can block the
+ * intended one from ever being tried. This clears all of them.
+ */
+void wifi_forget_all(void);
+
 #endif /* APP_WIFI_H_ */
