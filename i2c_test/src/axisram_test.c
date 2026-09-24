@@ -11,7 +11,7 @@
  * by that restriction.
  *
  * Placing data there needs two things beyond the overlay's `reg`:
- *   - CONFIG_STM32N6_AXISRAM (see drivers/misc/stm32n6_axisram/) -
+ *   - CONFIG_STM32N6_AXISRAM (see soc/st/stm32/stm32n6x/axisram/) -
  *     a dedicated driver that turns on the bank's RCC clock gate and
  *     calls HAL_RAMCFG_EnableAXISRAM() at PRE_KERNEL_2, before this
  *     buffer is ever touched. It auto-selects once the &axisram3

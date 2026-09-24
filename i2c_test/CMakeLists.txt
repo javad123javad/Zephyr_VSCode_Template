@@ -10,6 +10,15 @@ set(ZEPHYR_EXTRA_MODULES ${CMAKE_CURRENT_SOURCE_DIR}/pca9557_driver)
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(i2c_test)
 
+# The default mindos_n6 variant executes in place from external flash and
+# is only bootable when chainloaded by MCUboot, which sysbuild provides.
+if(CONFIG_XIP AND NOT CONFIG_BOOTLOADER_MCUBOOT)
+	message(FATAL_ERROR
+		"This board variant runs from external flash (XIP) and must be "
+		"built with --sysbuild so MCUboot is included, or use the /sb variant "
+		"for a RAM-loaded image. See README.rst.")
+endif()
+
 # Pulls in Zephyr's shared USB device stack bring-up helper
 # (sample_usbd_init_device() etc.), used by usb_device_test.c. See
 # samples/subsys/usb/common/ - it's normally sample-only, but reusing

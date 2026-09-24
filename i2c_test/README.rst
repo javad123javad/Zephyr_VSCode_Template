@@ -203,7 +203,8 @@ board across reboots, but not a "real" assigned OUI; if you later
 program a MAC into OTP, uncomment the ``nvmem-cells`` properties
 there to use it instead.
 
-**AXISRAM3 extra SRAM** (``axisram_test.c``): this board's ``zephyr,sram``
+**AXISRAM3 extra SRAM** (``axisram_test.c``): on the RAM-loaded ``/sb``
+and ``/fsbl`` variants this board's ``zephyr,sram``
 is ``axisram2``, which - despite the name - is not "the second SRAM
 block". It's ST's name for the top 511KB of the combined ~2MB
 axisram1/2 address window, and it's the *only* part of that window
@@ -226,7 +227,7 @@ sets ``reg = <0x34200000 DT_SIZE_K(448)>;`` and an explicit
 ``status = "okay";`` (relying on the default status alone did not
 turn on ``CONFIG_STM32N6_AXISRAM``, the driver that clocks and
 enables the bank at ``PRE_KERNEL_2`` - see
-``drivers/misc/stm32n6_axisram/``). The address/size came from three
+``soc/st/stm32/stm32n6x/axisram/``). The address/size came from three
 independently cross-checked sources (documented in the overlay
 comment) since no full STM32N6 reference manual was available
 locally: the gaps between AXISRAM3-6's addresses in the SoC
@@ -288,6 +289,16 @@ So, on this board, as things stand:
   (``arch/arm/core/mpu/arm_mpu.c`` -> ``REGION_RAM_ATTR`` in
   ``arm_mpu_v8.h``, which sets the MPU's ``NOT_EXEC`` bit).
 
+**XIP is the real answer to "space for application code".** On the
+default ``mindos_n6`` variant (see "Building and flashing" below) the
+code runs in place from the external W25Q64JV and is no longer copied
+into the 511KB boot window at all: it gets a ~4MB flash slot, and
+``zephyr,sram`` becomes the full 2MB ``axisram1``, since the boot
+window restriction only applies to images loaded by the Boot ROM, not
+to an application chainloaded by MCUboot. The memory-region summary
+of an XIP build shows it, e.g. ``FLASH: 208936 B / 4120240 B`` and
+``RAM: 67216 B / 2 MB``.
+
 Getting I2S to build at all also required one devicetree fix: the SoC
 devicetree defines the ``i2s1`` peripheral's DMA channels via
 ``&gpdma1``, but ``gpdma1`` itself is left ``status = "disabled"`` at
@@ -299,10 +310,38 @@ device that doesn't exist. ``boards/*.overlay`` sets
 Building and flashing
 **********************
 
-.. code-block:: console
+Two boot modes are supported:
 
-   west build -p always -b mindos_n6/stm32n657xx/sb workspace/i2c_test
-   west flash
+* **XIP from external flash (default ``mindos_n6`` variant).** MCUboot
+  (built for the ``/fsbl`` variant) is loaded by the Boot ROM, then
+  chainloads this application from the ``slot0`` partition of the
+  W25Q64JV, where it executes in place. Must be built with
+  ``--sysbuild``; building without it fails on purpose (see
+  ``CMakeLists.txt``), since the resulting image could not boot.
+  ``west flash`` programs both MCUboot and the signed application
+  through the ``Template_FSBL_XIP_ExtMemLoader.stldr`` external loader.
+
+  .. code-block:: console
+
+     west build -p always -b mindos_n6 --sysbuild workspace/i2c_test
+     west flash
+
+  Flash with the boot pins set to development boot, then switch them to
+  flash boot and reset. The console shows the MCUboot banner and
+  ``Jumping to the first image slot`` before the test output.
+
+* **RAM-loaded over USB (``/sb`` variant).** The whole image is loaded
+  into the 511KB boot window; nothing is written to external flash.
+
+  .. code-block:: console
+
+     west build -p always -b mindos_n6/stm32n657xx/sb workspace/i2c_test
+     west flash
+
+``boards/mindos_n6_stm32n657xx.overlay`` (XIP) and
+``boards/mindos_n6_stm32n657xx_sb.overlay`` (``/sb``) have the same
+contents and must be kept in sync. There is no overlay for the
+standalone ``/fsbl`` variant.
 
 Then open the console UART (``usart1``, 115200 8N1) to see the scan
 results and periodic sensor/CAN/DHCP output, and listen at the
