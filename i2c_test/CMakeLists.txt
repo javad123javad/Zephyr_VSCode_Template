@@ -26,4 +26,5 @@ target_sources(app PRIVATE
 	src/i2s_test.c
 	src/usb_power_test.c
 	src/usb_device_test.c
+	src/lan_test.c
 )

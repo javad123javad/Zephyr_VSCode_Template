@@ -24,6 +24,7 @@ Layout
        i2s_test.c / .h             MAX98357A I2S test tone (runs its own thread)
        usb_power_test.c / .h       MIC2026-1YM USB port power switch test
        usb_device_test.c / .h      USB1 as a CDC-ACM device (runs its own thread)
+       lan_test.c / .h             On-board Ethernet + DHCPv4 client
 
 Buses and devices
 ******************
@@ -43,6 +44,12 @@ I2S (also already enabled in the same file):
 
 * ``i2s1`` (nodelabel ``io_i2s``) - WS on PA15, SDO on PB5, SDI on
   PB8, CK on PB9
+
+Ethernet (also already enabled in the same file):
+
+* ``mac`` - RMII, MDIO on PD12/PD1, data/clock on PF7/PF10/PF14/PF15/
+  PF11/PF12/PF13, PHY at MDIO address 0 (nodelabel ``eth_phy``,
+  generic ``ethernet-phy`` binding)
 
 ``boards/*.overlay`` adds four devices found during bring-up:
 
@@ -175,6 +182,26 @@ an out-of-tree app rather than a sample inside the Zephyr tree:
   ``cmake/modules/kconfig.cmake``), so it must still pull in the
   normal tree via ``Kconfig.zephyr`` or everything else breaks.
 
+**On-board Ethernet + DHCPv4** (``lan_test.c``): the MAC uses the
+official STM32Cube HAL Ethernet driver (``ETH_STM32_HAL_API_V2``,
+which explicitly supports ``SOC_SERIES_STM32N6X``); the PHY node uses
+Zephyr's generic ``ethernet-phy`` binding (``CONFIG_PHY_GENERIC_MII``),
+which talks standard MDIO management registers for link/speed/duplex
+autonegotiation - no vendor-specific PHY driver needed unless you want
+chip-specific extras later. At boot, a DHCPv4 client is started on
+every network interface (just the one on-board MAC here); once a
+lease is bound, the assigned address/netmask/gateway/lease time are
+printed. Nothing is logged before that point beyond the "starting
+DHCPv4" line, and ``CONFIG_NET_SHELL=y`` gives you ``net iface`` /
+``net dhcpv4`` for further poking from the shell.
+
+No MAC address is programmed in OTP on virgin boards (see the comment
+on ``&mac`` in ``mindos_n6_common.dtsi``), so the driver falls back to
+one derived from the chip's unique ID via ``HWINFO`` - stable per
+board across reboots, but not a "real" assigned OUI; if you later
+program a MAC into OTP, uncomment the ``nvmem-cells`` properties
+there to use it instead.
+
 Getting I2S to build at all also required one devicetree fix: the SoC
 devicetree defines the ``i2s1`` peripheral's DMA channels via
 ``&gpdma1``, but ``gpdma1`` itself is left ``status = "disabled"`` at
@@ -192,5 +219,5 @@ Building and flashing
    west flash
 
 Then open the console UART (``usart1``, 115200 8N1) to see the scan
-results and periodic sensor/CAN output, and listen at the MAX98357A's
-speaker output for the test tone.
+results and periodic sensor/CAN/DHCP output, and listen at the
+MAX98357A's speaker output for the test tone.
