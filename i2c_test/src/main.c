@@ -16,6 +16,7 @@
 #include "usb_power_test.h"
 #include "usb_device_test.h" /* no API - runs its own thread once linked in */
 #include "lan_test.h"
+#include "axisram_test.h"
 
 int main(void)
 {
@@ -28,6 +29,7 @@ int main(void)
 	can_test_init();
 	usb_power_test_init();
 	lan_test_init();
+	axisram_test_run();
 
 	/* 500ms tick: advance the PCA9557 pattern every tick, sample the
 	 * BME280 every 4th tick (2s), drive the CAN test every 2nd tick

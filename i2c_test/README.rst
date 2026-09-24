@@ -25,6 +25,7 @@ Layout
        usb_power_test.c / .h       MIC2026-1YM USB port power switch test
        usb_device_test.c / .h      USB1 as a CDC-ACM device (runs its own thread)
        lan_test.c / .h             On-board Ethernet + DHCPv4 client
+       axisram_test.c / .h         AXISRAM3 extra-SRAM write/read-back sanity check
 
 Buses and devices
 ******************
@@ -201,6 +202,91 @@ one derived from the chip's unique ID via ``HWINFO`` - stable per
 board across reboots, but not a "real" assigned OUI; if you later
 program a MAC into OTP, uncomment the ``nvmem-cells`` properties
 there to use it instead.
+
+**AXISRAM3 extra SRAM** (``axisram_test.c``): this board's ``zephyr,sram``
+is ``axisram2``, which - despite the name - is not "the second SRAM
+block". It's ST's name for the top 511KB of the combined ~2MB
+axisram1/2 address window, and it's the *only* part of that window
+valid for the Boot ROM to RAM-load an image into on this
+secure/serial-boot ("/sb") target; the rest of that window
+(``axisram1`` spans the whole thing) is reserved during SB/FSBL boot.
+Switching ``zephyr,sram`` to ``axisram1`` therefore doesn't give you
+"the other 1.5MB" - it links the image at an address/size the SB
+boot loader won't load at all, and the app silently never starts.
+Both official ST reference boards (``stm32n6570_dk``,
+``nucleo_n657x0_q``) use exactly this same ``axisram2``-for-SB
+convention.
+
+The actual extra RAM is ``AXISRAM3`` - a genuinely separate 448KB
+bank (one of four, AXISRAM3-6, together ~1.75MB more), already
+enabled by default in the SoC devicetree but with no ``reg``
+(address/size) set anywhere upstream, including in either reference
+board - so there's no existing example to copy. ``boards/*.overlay``
+sets ``reg = <0x34200000 DT_SIZE_K(448)>;`` and an explicit
+``status = "okay";`` (relying on the default status alone did not
+turn on ``CONFIG_STM32N6_AXISRAM``, the driver that clocks and
+enables the bank at ``PRE_KERNEL_2`` - see
+``drivers/misc/stm32n6_axisram/``). The address/size came from three
+independently cross-checked sources (documented in the overlay
+comment) since no full STM32N6 reference manual was available
+locally: the gaps between AXISRAM3-6's addresses in the SoC
+devicetree, the boundary in ST's own official ``STM32N657X0HXQ_LRUN.ld``
+linker script, and an ST engineer's "3.75MB total across AXISRAM1-6"
+figure on the ST community forum.
+
+At boot, a 256-byte buffer is placed in AXISRAM3 via the standard
+``zephyr,memory-region`` mechanism (``Z_GENERIC_SECTION`` +
+``LINKER_DT_NODE_REGION_NAME_TOKEN``, not a plain static variable -
+see ``axisram_test.c``), filled with a test pattern, and read back to
+confirm the bank is genuinely clocked and addressable rather than
+merely linked. Look for ``AXISRAM3: 256 B`` in the ``west build``
+memory-region summary, and the ``AXISRAM3: write/read-back OK`` line
+on the console.
+
+**Freeing primary-image space with AXISRAM3 - tried, reverted, doesn't
+work as hoped.** Since this ``/sb`` target RAM-loads the *whole*
+image (code and data both) into the 511KB ``axisram2`` window, moving
+things out of it looks like a direct way to make room for more
+application code. ``CONFIG_CODE_DATA_RELOCATION`` +
+``zephyr_code_relocate(FILES src/i2s_test.c LOCATION AXISRAM3_RODATA)``
+was tried, to move that file's sine table (an initialized ``const``
+array) into AXISRAM3. It built cleanly and the memory-region summary
+looked right (primary RAM usage down, ``AXISRAM3`` usage up by a
+matching amount) - but **the board never booted**: nothing, not even
+the earliest boot banner, printed.
+
+The reason: relocating anything with *initial values* (``.rodata``,
+``.data`` - not ``.bss``, see below) requires copying those values
+into AXISRAM3 during early boot. That copy
+(``data_copy_xip_relocation()``, called from ``arch_data_copy()`` in
+``arch/common/xip.c``) runs as part of the C runtime startup, before
+*any* Zephyr-managed init - including the ``stm32n6_axisram`` driver
+that enables AXISRAM3's RCC clock at ``PRE_KERNEL_2``. So the copy
+tries to write into a not-yet-clocked SRAM bank, which hangs the bus
+before the CPU can do anything else, including print. This is why
+``axisram_test.c``'s own buffer *does* work: it has no initializer
+(``.bss``, zero-init only) and is only touched at runtime from
+``main()``, well after ``PRE_KERNEL_2`` has already run.
+
+So, on this board, as things stand:
+
+* ``.bss`` (uninitialized data/buffers) - relocates to AXISRAM3 fine,
+  as long as nothing touches it before ``main()`` runs.
+* ``.rodata``/``.data`` (anything with initial values) - relocating
+  it hangs the board at boot, for the reason above. Fixing this would
+  need AXISRAM3's clock enabled *earlier* than ``PRE_KERNEL_2`` -
+  realistically in ``soc.c``'s ``SystemInit()``, which runs before
+  ``arch_data_copy()`` - a real Zephyr-tree change, not an app-level
+  one.
+* ``.text`` (code) - not relocatable at all here regardless of the
+  above: this SoC uses ``CONFIG_CPU_HAS_CUSTOM_FIXED_SOC_MPU_REGIONS``,
+  and ``soc/st/stm32/stm32n6x/mpu_regions.c`` defines exactly two
+  fixed MPU regions (read+execute for the primary image's code,
+  read/write-but-not-executable for its data) that don't cover
+  AXISRAM3; the generic ``zephyr,memory-attr`` used for it
+  (``ATTR_MPU_RAM``) also maps to non-executable RAM
+  (``arch/arm/core/mpu/arm_mpu.c`` -> ``REGION_RAM_ATTR`` in
+  ``arm_mpu_v8.h``, which sets the MPU's ``NOT_EXEC`` bit).
 
 Getting I2S to build at all also required one devicetree fix: the SoC
 devicetree defines the ``i2s1`` peripheral's DMA channels via

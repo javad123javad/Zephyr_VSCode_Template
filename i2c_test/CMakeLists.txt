@@ -27,4 +27,17 @@ target_sources(app PRIVATE
 	src/usb_power_test.c
 	src/usb_device_test.c
 	src/lan_test.c
+	src/axisram_test.c
 )
+
+# CONFIG_CODE_DATA_RELOCATION to AXISRAM3 was tried here and reverted:
+# it hangs at boot on this board. See the README section "AXISRAM3
+# extra SRAM" for why - short version: relocating an *initialized*
+# section (e.g. i2s_test.c's const sine table, or any .data) needs an
+# early boot-time copy into AXISRAM3, and that copy (arch_data_copy(),
+# called before any Kconfig SYS_INIT level) runs before the
+# stm32n6_axisram driver enables AXISRAM3's clock at PRE_KERNEL_2 -
+# writing to a not-yet-clocked SRAM bank hangs the bus before anything
+# can even print. axisram_test.c's own buffer works fine specifically
+# because it's uninitialized (no early copy needed) and is only
+# touched at runtime from main(), well after PRE_KERNEL_2.

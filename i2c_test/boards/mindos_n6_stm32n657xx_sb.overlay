@@ -44,6 +44,35 @@
 	status = "okay";
 };
 
+/*
+ * AXISRAM3: extra 448KB SRAM bank beyond the primary axisram1/2
+ * region already used as zephyr,sram - see axisram_test.c for what
+ * this demonstrates and why zephyr,sram itself can't just be
+ * switched to axisram1 for "more RAM" (short version: on this
+ * secure/serial-boot ("/sb") target the Boot ROM RAM-loads the whole
+ * image into a fixed 511KB window at the top of the axisram1/2
+ * range - that's what "axisram2" actually denotes here - and
+ * anywhere else in that range is invalid during SB/FSBL boot).
+ *
+ * 448KB comes from the gap between axisram3/4/5/6's addresses in
+ * dts/arm/st/n6/stm32n6.dtsi (0x34200000, 0x34270000, 0x342e0000,
+ * 0x34350000 - each 0x70000 apart), cross-checked against an ST
+ * engineer's figure of "3.75MB total across AXISRAM1-6" on the ST
+ * community forum (3.75MB - 2MB for axisram1/2 = 1.75MB over 4
+ * banks = 448KB each). Neither the upstream SoC dtsi nor either
+ * official ST reference board (stm32n6570_dk, nucleo_n657x0_q) sets
+ * reg on axisram3-6, so there's no in-tree example to copy from.
+ *
+ * status = "okay" is set explicitly (not relying on the default) -
+ * CONFIG_STM32N6_AXISRAM's `default y if $(dt_nodelabel_enabled,...)`
+ * did not turn on with axisram3 merely lacking an explicit
+ * "disabled" status; it needs a literal "okay".
+ */
+&axisram3 {
+	reg = <0x34200000 DT_SIZE_K(448)>;
+	status = "okay";
+};
+
 / {
 	zephyr,user {
 		usb1-en-gpios = <&gpioe 1 GPIO_ACTIVE_HIGH>;
