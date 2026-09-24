@@ -16,15 +16,16 @@ Layout
      boards/                       board-target-specific devicetree overlays
      pca9557_driver/               out-of-tree GPIO driver (see its own README)
      src/
-       main.c                      boot scan + the 500ms tick loop
-       i2c_scan.c / .h             I2C bus scanner
+       main.c                      boot: USB2 5V on, DHCPv4 client started
+       mind_shell.c                "mind" shell command (test_all + single tests)
+       i2c_scan.c / .h             I2C bus scan + expected-device check
        pca9557_test.c / .h         PCA9557 GPIO expander walking-bit test
-       bme280_test.c / .h          BME280 sensor sampling
+       bme280_test.c / .h          BME280 sample + range check
        can_test.c / .h             MCP2515 CAN loopback test
-       i2s_test.c / .h             MAX98357A I2S test tone (runs its own thread)
+       i2s_test.c / .h             MAX98357A I2S test tone (playback thread)
        usb_power_test.c / .h       MIC2026-1YM USB port power switch test
-       usb_device_test.c / .h      USB1 as a CDC-ACM device (runs its own thread)
-       lan_test.c / .h             On-board Ethernet + DHCPv4 client
+       usb_device_test.c / .h      USB1 as a CDC-ACM device, enumeration check
+       lan_test.c / .h             On-board Ethernet + DHCPv4 lease check
        axisram_test.c / .h         AXISRAM3 extra-SRAM write/read-back sanity check
        eeprom_test.c / .h          M24C64 board-configuration EEPROM check
 
@@ -83,11 +84,37 @@ The overlays also enable ``&gpdma1``, which the I2S driver needs (see
 What it does
 ************
 
-At boot, ``main.c`` scans addresses 0x04-0x77 on both I2C buses
-(``i2c_scan.c``) and prints a scan table (same format as the
-``i2c scan`` shell command) showing any address that ACKs. After the
-boot-time scan, an interactive shell is available to re-scan or poke
-at a device by hand::
+The tests run from the shell, through the ``mind`` command
+(``mind_shell.c``)::
+
+   uart:~$ mind test_all    # every test below, then a PASS/FAIL summary
+   uart:~$ mind eeprom      # a single test; plain "mind" lists them all
+
+================ ===========================================================
+Command          Passes when
+================ ===========================================================
+``axisram``      a buffer in AXISRAM3 reads back what was written
+``eeprom``       the M24C64 last-page write/read-back and restore succeed
+``i2c_scan``     every device described in the overlays ACKs its address
+``pca9557``      the Output Port register matches at each walking-bit step
+``bme280``       a sample is within the sensor's operating range
+``can``          an MCP2515 loopback frame is received back
+``usb_power``    USB2's 5V switch reports no OCS/fault
+``i2s``          a 2 s test tone streams without error (listen for it)
+``lan``          the Ethernet interface gets a DHCPv4 lease within 15 s
+``usb``          a host enumerates USB1 within 10 s
+================ ===========================================================
+
+Each command prints its details and returns 0 on success or a
+negative errno value, so it also works from shell scripts.
+``test_all`` runs the two tests that wait on something external
+(``lan`` and ``usb``) last. Only two things still happen at boot,
+because they are services rather than tests: USB2's 5V switch is
+turned on, and the DHCPv4 client is started so ``net ping`` works
+straight away.
+
+Zephyr's own shell commands stay available for poking at a device by
+hand::
 
    uart:~$ i2c scan i2c@50005400   # i2c1 / io_cnf_i2c
    uart:~$ i2c scan i2c@50005800   # i2c2 / io_i2c
@@ -96,45 +123,52 @@ at a device by hand::
 ``label`` property is set on these nodes upstream.)
 
 **PCA9557** (``pca9557_test.c``): configures all 8 pins as outputs and
-continuously runs a walking-bit pattern (one pin at a time, every
-500ms) through the standard ``gpio.h`` API against the out-of-tree
-driver in ``pca9557_driver/`` - see that directory's README for why
-Zephyr's in-tree ``nxp,pca95xx`` driver doesn't work with this part
-(it targets a different, 16-bit chip family with an incompatible
-register map). Nothing is logged per step; only write errors are.
+walks a single high bit across them (100 ms per pin) through the
+standard ``gpio.h`` API against the out-of-tree driver in
+``pca9557_driver/`` - see that directory's README for why Zephyr's
+in-tree ``nxp,pca95xx`` driver doesn't work with this part (it targets
+a different, 16-bit chip family with an incompatible register map).
+Each step is verified by reading the chip's Output Port register back
+over I2C rather than the pins: IO0 is open-drain (reads low without a
+pull-up) and the Polarity Inversion register resets to ``0xf0``,
+inverting IO4-IO7 in the Input Port register.
 
 **BME280** (``bme280_test.c``): added via the standard ``bosch,bme280``
-devicetree binding and Zephyr's sensor API; every 2s fetches a sample
-and prints temperature, pressure, and humidity.
+devicetree binding and Zephyr's sensor API; fetches one sample, prints
+temperature, pressure and humidity, and fails if any is outside the
+datasheet operating range (-40..85 C, 30..110 kPa, 0..100 %RH).
 
 **MCP2515** (``can_test.c``): added via the standard
 ``microchip,mcp2515`` devicetree binding. By default
 (``CAN_TEST_LOOPBACK`` in that file) the controller runs in internal
 loopback mode, so the SPI link and controller are exercised without
-needing a second CAN node on the bus: every second it sends a frame
-with ID ``0x123`` and an incrementing counter byte, and anything
-received is printed. Disable ``CAN_TEST_LOOPBACK`` once you have a
-real bus/transceiver and a second node to talk to.
+needing a second CAN node on the bus: the controller is started on the
+first run, then each run sends a frame with ID ``0x123`` and an
+incrementing counter byte and checks it is received back within
+100 ms. Disable ``CAN_TEST_LOOPBACK`` once you have a real
+bus/transceiver and a second node to talk to.
 
 **MAX98357A** (``i2s_test.c``): has no control bus of its own (no
 I2C/SPI, no Zephyr devicetree binding) - it just plays whatever
 standard I2S stream it's fed, so there's no separate devicetree node
-for it; the "device" is simply the ``i2s1`` controller. Runs in its
-own thread (``K_THREAD_DEFINE``, priority -1 - see the comment in
-that file for why it needs to preempt ``main()``'s tick loop) that
+for it; the "device" is simply the ``i2s1`` controller. Each run
 configures ``i2s1`` as I2S clock master, 44.1 kHz / 16-bit / stereo,
-and continuously streams a single-cycle 64-sample sine table
-(~689 Hz, identical on both channels) back-to-back for a steady,
-glitch-free test tone. Two non-obvious fixes were needed to get this
-working reliably - both documented in ``i2s_test.c``:
+and streams a single-cycle 64-sample sine table (~689 Hz, identical on
+both channels) back-to-back for 2 s, then drains the stream. The test
+can only detect driver errors and underruns; whether the tone was
+audible has to be checked by ear. Streaming is done by a dedicated
+priority -1 thread that the shell command hands the request to. Two
+non-obvious fixes were needed to get this working reliably - both
+documented in ``i2s_test.c``:
 
 * the whole TX queue must be pre-filled before ``i2s_trigger(START)``,
   or the DMA underruns waiting for the next ~1.45ms block before the
   thread can supply it;
-* the thread's priority must be higher than ``main()``'s, or
-  ``main()``'s periodic I2C/CAN housekeeping (BME280 sampling in
-  particular) intermittently starves it of CPU time long enough to
-  underrun anyway.
+* the streaming thread's priority must be high: with equal or lower
+  priority than other periodic work (BME280 sampling in particular,
+  during bring-up), it was intermittently starved of CPU time long
+  enough to underrun anyway. That is also why the shell thread does
+  not stream the audio itself.
 
 **MIC2026-1YM x2** (``usb_power_test.c``): each USB port's power switch
 has an EN input (active-high, drive high to enable the 5V switch) and
@@ -146,10 +180,9 @@ plain GPIOs with no chip/protocol driver involved, so they're exposed
 via the standard ``zephyr,user`` devicetree node rather than a custom
 binding.
 
-Only **USB2** is actually power-switched: at boot it's enabled and its
-initial OCS state is printed, then its OCS is polled every 500ms tick
-but only logged when it changes (fault raised or cleared), to keep
-the console usable. **USB1's EN is deliberately held off** (driven
+Only **USB2** is actually power-switched: it's enabled at boot so its
+5V is always available, and ``mind usb_power`` reads its OCS flag and
+fails on a fault. **USB1's EN is deliberately held off** (driven
 inactive, not left floating) - see "USB1 as a device" below for why.
 
 **USB1 as a device** (``usb_device_test.c``): Zephyr has no host-mode
@@ -157,10 +190,11 @@ inactive, not left floating) - see "USB1 as a device" below for why.
 enumerating this board *to* a PC - is the only way to exercise the
 USB wiring at all with what's currently in-tree. USB1 (``usbotg_hs1``
 / ``zephyr_udc0``) is set up as a USB CDC-ACM serial device using the
-new USB device stack; once a PC opens the enumerated serial port
-(DTR asserted), anything typed is echoed straight back, confirming
-both enumeration and bidirectional data transfer. Runs in its own
-thread so it doesn't block the rest of bring-up waiting for a PC.
+new USB device stack, brought up on the first ``mind usb`` run. The
+test passes once the host has enumerated and configured the device
+(``USBD_MSG_CONFIGURATION``); after that, anything typed into the
+enumerated serial port is echoed straight back, confirming data
+transfer in both directions.
 
 USB1 and USB2 share their physical USB-A connectors with the
 MIC2026-switched 5V described above. Since a PC supplies its own VBUS
@@ -192,11 +226,11 @@ Zephyr's generic ``ethernet-phy`` binding (``CONFIG_PHY_GENERIC_MII``),
 which talks standard MDIO management registers for link/speed/duplex
 autonegotiation - no vendor-specific PHY driver needed unless you want
 chip-specific extras later. At boot, a DHCPv4 client is started on
-every network interface (just the one on-board MAC here); once a
-lease is bound, the assigned address/netmask/gateway/lease time are
-printed. Nothing is logged before that point beyond the "starting
-DHCPv4" line, and ``CONFIG_NET_SHELL=y`` gives you ``net iface`` /
-``net dhcpv4`` for further poking from the shell.
+every network interface (just the one on-board MAC here) and the lease
+is printed once bound. ``mind lan`` prints the interface and MAC, then
+waits up to 15 s for a lease; on timeout it reports whether the link
+is up and the DHCP client's state. ``CONFIG_NET_SHELL=y`` gives you
+``net iface`` / ``net dhcpv4`` / ``net ping`` for further poking.
 
 No MAC address is programmed in OTP on virgin boards (see the comment
 on ``&mac`` in ``mindos_n6_common.dtsi``), so the driver falls back to
@@ -237,14 +271,13 @@ devicetree, the boundary in ST's own official ``STM32N657X0HXQ_LRUN.ld``
 linker script, and an ST engineer's "3.75MB total across AXISRAM1-6"
 figure on the ST community forum.
 
-At boot, a 256-byte buffer is placed in AXISRAM3 via the standard
+A 256-byte buffer is placed in AXISRAM3 via the standard
 ``zephyr,memory-region`` mechanism (``Z_GENERIC_SECTION`` +
 ``LINKER_DT_NODE_REGION_NAME_TOKEN``, not a plain static variable -
 see ``axisram_test.c``), filled with a test pattern, and read back to
 confirm the bank is genuinely clocked and addressable rather than
 merely linked. Look for ``AXISRAM3: 256 B`` in the ``west build``
-memory-region summary, and the ``AXISRAM3: write/read-back OK`` line
-on the console.
+memory-region summary, and run ``mind axisram``.
 
 **Freeing primary-image space with AXISRAM3 - tried, reverted, doesn't
 work as hoped.** Since this ``/sb`` target RAM-loads the *whole*
@@ -268,8 +301,8 @@ that enables AXISRAM3's RCC clock at ``PRE_KERNEL_2``. So the copy
 tries to write into a not-yet-clocked SRAM bank, which hangs the bus
 before the CPU can do anything else, including print. This is why
 ``axisram_test.c``'s own buffer *does* work: it has no initializer
-(``.bss``, zero-init only) and is only touched at runtime from
-``main()``, well after ``PRE_KERNEL_2`` has already run.
+(``.bss``, zero-init only) and is only touched at runtime by
+``mind axisram``, well after ``PRE_KERNEL_2`` has already run.
 
 So, on this board, as things stand:
 
@@ -294,8 +327,7 @@ So, on this board, as things stand:
 **M24C64 board-configuration EEPROM** (``eeprom_test.c``): 8 KiB,
 32-byte pages, 16-bit word address, driven by Zephyr's in-tree
 ``atmel,at24`` driver (``compatible = "st,m24c64", "atmel,at24"``).
-Because it holds real board settings, the boot-time test changes
-nothing: it hex-dumps the first 64 bytes read-only, then writes the
+Because it holds real board settings, the test changes nothing: it hex-dumps the first 64 bytes read-only, then writes the
 bitwise complement of the last page (0x1fe0-0x1fff), verifies it,
 writes the saved original back and verifies that too. Only a power
 loss during those few milliseconds could leave the last page altered;
@@ -360,6 +392,6 @@ Two boot modes are supported:
 contents and must be kept in sync. There is no overlay for the
 standalone ``/fsbl`` variant.
 
-Then open the console UART (``usart1``, 115200 8N1) to see the scan
-results and periodic sensor/CAN/DHCP output, and listen at the
+Then open the console UART (``usart1``, 115200 8N1), run
+``mind test_all``, and listen at the
 MAX98357A's speaker output for the test tone.

@@ -3,10 +3,12 @@
 #ifndef I2C_SCAN_H_
 #define I2C_SCAN_H_
 
+#include <zephyr/shell/shell.h>
+
 /* Scans both on-board I2C buses (io_cnf_i2c / io_i2c) for addresses
- * 0x04-0x77 and prints a scan table (same format as the "i2c scan"
- * shell command) showing any address that ACKs.
+ * 0x04-0x77, prints a scan table and fails if a device described in the
+ * overlays does not answer.
  */
-void i2c_scan_all(void);
+int i2c_scan_test_run(const struct shell *sh);
 
 #endif /* I2C_SCAN_H_ */

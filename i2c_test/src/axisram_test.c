@@ -35,13 +35,11 @@
 
 static uint8_t axisram3_buf[256] Z_GENERIC_SECTION(LINKER_DT_NODE_REGION_NAME_TOKEN(AXISRAM3_NODE));
 
-void axisram_test_run(void)
+int axisram_test_run(const struct shell *sh)
 {
-	bool ok = true;
-
-	printk("AXISRAM3: %u KB @ 0x%08lx (test buffer @ %p)\n",
-	       (unsigned int)(DT_REG_SIZE(AXISRAM3_NODE) / 1024),
-	       (unsigned long)DT_REG_ADDR(AXISRAM3_NODE), (void *)axisram3_buf);
+	shell_print(sh, "AXISRAM3: %u KB @ 0x%08lx (test buffer @ %p)",
+		    (unsigned int)(DT_REG_SIZE(AXISRAM3_NODE) / 1024),
+		    (unsigned long)DT_REG_ADDR(AXISRAM3_NODE), (void *)axisram3_buf);
 
 	for (size_t i = 0; i < sizeof(axisram3_buf); i++) {
 		axisram3_buf[i] = (uint8_t)i;
@@ -49,13 +47,14 @@ void axisram_test_run(void)
 
 	for (size_t i = 0; i < sizeof(axisram3_buf); i++) {
 		if (axisram3_buf[i] != (uint8_t)i) {
-			printk("AXISRAM3: mismatch at offset %u (wrote 0x%02x, read 0x%02x)\n",
-			       (unsigned int)i, (unsigned int)(uint8_t)i,
-			       (unsigned int)axisram3_buf[i]);
-			ok = false;
-			break;
+			shell_error(sh, "AXISRAM3: mismatch at offset %u (wrote 0x%02x, read 0x%02x)",
+				    (unsigned int)i, (unsigned int)(uint8_t)i,
+				    (unsigned int)axisram3_buf[i]);
+			return -EIO;
 		}
 	}
 
-	printk("AXISRAM3: write/read-back %s\n", ok ? "OK" : "FAILED");
+	shell_print(sh, "AXISRAM3: %u bytes written and read back",
+		    (unsigned int)sizeof(axisram3_buf));
+	return 0;
 }

@@ -3,12 +3,11 @@
 #ifndef BME280_TEST_H_
 #define BME280_TEST_H_
 
-/* Checks the BME280 (io_i2c @ 0x76) is ready and prints a status line. */
-void bme280_test_init(void);
+#include <zephyr/shell/shell.h>
 
-/* Fetches one sample and prints temperature/pressure/humidity. Call
- * periodically (the app calls this every 4th 500ms tick, i.e. every 2s).
+/* Takes one BME280 (io_i2c @ 0x76) sample, prints it and checks it is
+ * within the sensor's operating range.
  */
-void bme280_test_sample(void);
+int bme280_test_run(const struct shell *sh);
 
 #endif /* BME280_TEST_H_ */

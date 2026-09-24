@@ -18,6 +18,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/eeprom.h>
+#include <zephyr/shell/shell.h>
 
 #define EEPROM_NODE DT_NODELABEL(board_eeprom)
 #define PAGE_SIZE   DT_PROP(EEPROM_NODE, pagesize)
@@ -25,79 +26,74 @@
 
 static const struct device *const eeprom = DEVICE_DT_GET(EEPROM_NODE);
 
-static void dump(off_t offset, const uint8_t *buf, size_t len)
+static void dump(const struct shell *sh, off_t offset, const uint8_t *buf, size_t len)
 {
-	for (size_t i = 0; i < len; i++) {
-		if ((i % 16U) == 0U) {
-			printk("  %04lx:", (unsigned long)(offset + i));
-		}
-		printk(" %02x", buf[i]);
-		if ((i % 16U) == 15U) {
-			printk("\n");
-		}
+	for (size_t i = 0; i < len; i += 16U) {
+		shell_hexdump_line(sh, (unsigned int)(offset + i), &buf[i], MIN(len - i, 16U));
 	}
 }
 
-static bool write_verify(off_t offset, const uint8_t *data, size_t len, const char *what)
+static int write_verify(const struct shell *sh, off_t offset, const uint8_t *data,
+			size_t len, const char *what)
 {
 	uint8_t readback[PAGE_SIZE];
 	int err;
 
 	err = eeprom_write(eeprom, offset, data, len);
 	if (err != 0) {
-		printk("EEPROM: %s write failed (%d)%s\n", what, err,
-		       (err == -EIO) ? " - is the WC (write control) pin held high?" : "");
-		return false;
+		shell_error(sh, "EEPROM: %s write failed (%d)%s", what, err,
+			    (err == -EIO) ? " - is the WC (write control) pin held high?" : "");
+		return err;
 	}
 
 	err = eeprom_read(eeprom, offset, readback, len);
 	if (err != 0) {
-		printk("EEPROM: %s read-back failed (%d)\n", what, err);
-		return false;
+		shell_error(sh, "EEPROM: %s read-back failed (%d)", what, err);
+		return err;
 	}
 
 	if (memcmp(data, readback, len) != 0) {
-		printk("EEPROM: %s read-back mismatch\n", what);
-		dump(offset, readback, len);
-		return false;
+		shell_error(sh, "EEPROM: %s read-back mismatch", what);
+		dump(sh, offset, readback, len);
+		return -EIO;
 	}
 
-	return true;
+	return 0;
 }
 
-void eeprom_test_run(void)
+int eeprom_test_run(const struct shell *sh)
 {
 	uint8_t head[DUMP_LEN];
 	uint8_t saved[PAGE_SIZE];
 	uint8_t pattern[PAGE_SIZE];
 	size_t size;
 	off_t last_page;
-	bool ok;
-	bool restored;
+	int test_err;
+	int restore_err;
 	int err;
 
 	if (!device_is_ready(eeprom)) {
-		printk("EEPROM: M24C64 @ 0x%02x not ready\n", DT_REG_ADDR(EEPROM_NODE));
-		return;
+		shell_error(sh, "EEPROM: M24C64 @ 0x%02x not ready", DT_REG_ADDR(EEPROM_NODE));
+		return -ENODEV;
 	}
 
 	size = eeprom_get_size(eeprom);
 	last_page = (off_t)(size - PAGE_SIZE);
-	printk("EEPROM: M24C64 @ 0x%02x, %u bytes, %u-byte pages\n",
-	       DT_REG_ADDR(EEPROM_NODE), (unsigned int)size, (unsigned int)PAGE_SIZE);
+	shell_print(sh, "EEPROM: M24C64 @ 0x%02x, %u bytes, %u-byte pages",
+		    DT_REG_ADDR(EEPROM_NODE), (unsigned int)size, (unsigned int)PAGE_SIZE);
 
 	err = eeprom_read(eeprom, 0, head, sizeof(head));
 	if (err != 0) {
-		printk("EEPROM: read failed (%d)\n", err);
-		return;
+		shell_error(sh, "EEPROM: read failed (%d)", err);
+		return err;
 	}
-	printk("EEPROM: first %u bytes (board configuration area):\n", DUMP_LEN);
-	dump(0, head, sizeof(head));
+	shell_print(sh, "EEPROM: first %u bytes (board configuration area):", DUMP_LEN);
+	dump(sh, 0, head, sizeof(head));
 
 	err = eeprom_read(eeprom, last_page, saved, sizeof(saved));
 	if (err != 0) {
-		printk("EEPROM: read of last page failed (%d)\n", err);
-		return;
+		shell_error(sh, "EEPROM: read of last page failed (%d)", err);
+		return err;
 	}
 
 	/* Complement of the saved bytes, so every bit is flipped by the test */
@@ -105,17 +101,22 @@ void eeprom_test_run(void)
 		pattern[i] = (uint8_t)~saved[i];
 	}
 
-	ok = write_verify(last_page, pattern, sizeof(pattern), "test pattern");
+	test_err = write_verify(sh, last_page, pattern, sizeof(pattern), "test pattern");
 
 	/* Always restore, even if the pattern check failed half-way */
-	restored = write_verify(last_page, saved, sizeof(saved), "restore");
-	if (!restored) {
-		printk("EEPROM: WARNING: last page @ 0x%04lx may not hold its original "
-		       "contents; they were:\n", (unsigned long)last_page);
-		dump(last_page, saved, sizeof(saved));
+	restore_err = write_verify(sh, last_page, saved, sizeof(saved), "restore");
+	if (restore_err != 0) {
+		shell_error(sh, "EEPROM: WARNING: last page @ 0x%04lx may not hold its original "
+			    "contents; they were:", (unsigned long)last_page);
+		dump(sh, last_page, saved, sizeof(saved));
+		return restore_err;
 	}
 
-	printk("EEPROM: write/read-back on last page @ 0x%04lx %s%s\n",
-	       (unsigned long)last_page, (ok && restored) ? "OK" : "FAILED",
-	       restored ? " (original contents restored)" : "");
+	if (test_err != 0) {
+		return test_err;
+	}
+
+	shell_print(sh, "EEPROM: write/read-back on last page @ 0x%04lx OK "
+		    "(original contents restored)", (unsigned long)last_page);
+	return 0;
 }

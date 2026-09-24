@@ -3,11 +3,12 @@
 #ifndef USB_DEVICE_TEST_H_
 #define USB_DEVICE_TEST_H_
 
-/* No API: this module runs itself. Linking usb_device_test.c in is
- * enough - it starts its own thread that brings up the USB device
- * stack on USB1 (usbotg_hs1) as a CDC-ACM serial port. See
- * usb_device_test.c for the important VBUS-conflict warning before
- * plugging that port into a PC.
+#include <zephyr/shell/shell.h>
+
+/* Brings up USB1 (usbotg_hs1) as a CDC-ACM serial device on first use
+ * and waits up to 10 s for a host to enumerate it. Afterwards the port
+ * echoes everything typed into it.
  */
+int usb_device_test_run(const struct shell *sh);
 
 #endif /* USB_DEVICE_TEST_H_ */

@@ -28,6 +28,7 @@ include(${ZEPHYR_BASE}/samples/subsys/usb/common/common.cmake)
 
 target_sources(app PRIVATE
 	src/main.c
+	src/mind_shell.c
 	src/i2c_scan.c
 	src/pca9557_test.c
 	src/bme280_test.c
@@ -50,4 +51,4 @@ target_sources(app PRIVATE
 # writing to a not-yet-clocked SRAM bank hangs the bus before anything
 # can even print. axisram_test.c's own buffer works fine specifically
 # because it's uninitialized (no early copy needed) and is only
-# touched at runtime from main(), well after PRE_KERNEL_2.
+# touched at runtime from the shell command, well after PRE_KERNEL_2.

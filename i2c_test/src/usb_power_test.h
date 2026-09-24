@@ -3,14 +3,14 @@
 #ifndef USB_POWER_TEST_H_
 #define USB_POWER_TEST_H_
 
-/* Enables both USB ports' MIC2026-1YM power switches (EN high) and
- * prints their initial OCS/fault status.
- */
-void usb_power_test_init(void);
+#include <zephyr/shell/shell.h>
 
-/* Polls both ports' OCS/fault status; only logs when it changes.
- * Call periodically (the app calls this once per 500ms tick).
+/* Configures both MIC2026-1YM USB power switches: 5V on for USB2, held
+ * off for USB1. Called at boot so USB2 power is always available.
  */
-void usb_power_test_step(void);
+void usb_power_init(void);
+
+/* Reports each port's switch state and fails on an OCS/fault flag. */
+int usb_power_test_run(const struct shell *sh);
 
 #endif /* USB_POWER_TEST_H_ */

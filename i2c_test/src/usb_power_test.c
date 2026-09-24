@@ -34,10 +34,9 @@ struct usb_port {
 	struct gpio_dt_spec en;
 	struct gpio_dt_spec ocs;
 	bool enable_5v; /* false for USB1 - see file comment */
-	bool fault;     /* last known state; only logged on change */
 };
 
-static struct usb_port ports[] = {
+static const struct usb_port ports[] = {
 	{
 		.name = "USB1",
 		.en = GPIO_DT_SPEC_GET(DT_PATH(zephyr_user), usb1_en_gpios),
@@ -52,15 +51,17 @@ static struct usb_port ports[] = {
 	},
 };
 
-void usb_power_test_init(void)
+static bool configured;
+
+static int usb_power_configure(void)
 {
 	for (size_t i = 0; i < ARRAY_SIZE(ports); i++) {
-		struct usb_port *port = &ports[i];
-		int ret, val;
+		const struct usb_port *port = &ports[i];
+		int ret;
 
 		if (!gpio_is_ready_dt(&port->en) || !gpio_is_ready_dt(&port->ocs)) {
 			printk("%s: GPIO not ready\n", port->name);
-			continue;
+			return -ENODEV;
 		}
 
 		/* Configure OCS first so it's already readable the instant
@@ -69,51 +70,61 @@ void usb_power_test_init(void)
 		ret = gpio_pin_configure_dt(&port->ocs, GPIO_INPUT | GPIO_PULL_UP);
 		if (ret < 0) {
 			printk("%s: failed to configure OCS pin (%d)\n", port->name, ret);
-			continue;
+			return ret;
 		}
 
 		ret = gpio_pin_configure_dt(&port->en, port->enable_5v ?
 					    GPIO_OUTPUT_ACTIVE : GPIO_OUTPUT_INACTIVE);
 		if (ret < 0) {
 			printk("%s: failed to configure EN (%d)\n", port->name, ret);
-			continue;
+			return ret;
 		}
+	}
 
-		if (!port->enable_5v) {
-			printk("%s: 5V held off (shares a connector with a USB device "
-			       "test)\n", port->name);
-			continue;
-		}
+	configured = true;
+	return 0;
+}
 
-		val = gpio_pin_get_dt(&port->ocs);
-		port->fault = val > 0;
-		printk("%s: 5V enabled, %s\n", port->name,
-		       val < 0 ? "OCS read failed" :
-		       port->fault ? "FAULT (overcurrent/thermal)" : "OK");
+void usb_power_init(void)
+{
+	if (usb_power_configure() == 0) {
+		printk("USB power: USB2 5V enabled, USB1 5V held off\n");
 	}
 }
 
-void usb_power_test_step(void)
+int usb_power_test_run(const struct shell *sh)
 {
-	for (size_t i = 0; i < ARRAY_SIZE(ports); i++) {
-		struct usb_port *port = &ports[i];
-		int val;
-		bool fault;
+	int ret = 0;
 
-		if (!port->enable_5v || !gpio_is_ready_dt(&port->ocs)) {
+	if (!configured) {
+		ret = usb_power_configure();
+		if (ret < 0) {
+			shell_error(sh, "USB power: GPIO setup failed (%d)", ret);
+			return ret;
+		}
+	}
+
+	for (size_t i = 0; i < ARRAY_SIZE(ports); i++) {
+		const struct usb_port *port = &ports[i];
+		int val;
+
+		if (!port->enable_5v) {
+			shell_print(sh, "%s: 5V held off (connector shared with the USB device "
+				    "test)", port->name);
 			continue;
 		}
 
 		val = gpio_pin_get_dt(&port->ocs);
 		if (val < 0) {
-			continue;
-		}
-
-		fault = val > 0;
-		if (fault != port->fault) {
-			port->fault = fault;
-			printk("%s: %s\n", port->name,
-			       fault ? "FAULT (overcurrent/thermal)" : "OK, 5V present");
+			shell_error(sh, "%s: OCS read failed (%d)", port->name, val);
+			ret = val;
+		} else if (val > 0) {
+			shell_error(sh, "%s: 5V enabled, FAULT (overcurrent/thermal)", port->name);
+			ret = -EIO;
+		} else {
+			shell_print(sh, "%s: 5V enabled, no fault", port->name);
 		}
 	}
+
+	return ret;
 }

@@ -1,10 +1,7 @@
 /*
- * Scans both on-board I2C buses at boot and reports any device that
- * ACKs its address. Follow up interactively from the shell with:
- *   i2c scan i2c@50005400   (i2c1 / io_cnf_i2c)
- *   i2c scan i2c@50005800   (i2c2 / io_i2c)
- * (The shell device names are the raw devicetree node names because
- * no "label" property is set on these nodes upstream.)
+ * Scans both on-board I2C buses, prints a scan table (same format as
+ * the "i2c scan" shell command) and checks that every device described
+ * in the overlays answers at its devicetree address.
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -15,67 +12,114 @@
 #include <zephyr/device.h>
 #include <zephyr/drivers/i2c.h>
 
-struct i2c_bus {
-	const struct device *dev;
-	const char *name;
-};
-
-static const struct i2c_bus buses[] = {
-	{ .dev = DEVICE_DT_GET(DT_NODELABEL(i2c1)), .name = "i2c1 (io_cnf_i2c)" },
-	{ .dev = DEVICE_DT_GET(DT_NODELABEL(i2c2)), .name = "i2c2 (io_i2c)" },
-};
-
 /* 7-bit address range scanned by the I2C shell's "i2c scan" command */
 #define I2C_SCAN_ADDR_FIRST 0x04
 #define I2C_SCAN_ADDR_LAST  0x77
 
-static void i2c_bus_scan(const struct i2c_bus *bus)
+struct i2c_expected {
+	uint16_t addr;
+	const char *name;
+};
+
+struct i2c_bus {
+	const struct device *dev;
+	const char *name;
+	const struct i2c_expected *expected;
+	size_t n_expected;
+};
+
+#define EXPECTED(_label, _name) { .addr = DT_REG_ADDR(DT_NODELABEL(_label)), .name = _name }
+
+static const struct i2c_expected cnf_expected[] = {
+	EXPECTED(board_eeprom, "M24C64 EEPROM"),
+};
+
+static const struct i2c_expected io_expected[] = {
+	EXPECTED(io_expander, "PCA9557"),
+	EXPECTED(bme280, "BME280"),
+};
+
+static const struct i2c_bus buses[] = {
+	{ DEVICE_DT_GET(DT_NODELABEL(i2c1)), "i2c1 (io_cnf_i2c)", cnf_expected,
+	  ARRAY_SIZE(cnf_expected) },
+	{ DEVICE_DT_GET(DT_NODELABEL(i2c2)), "i2c2 (io_i2c)", io_expected,
+	  ARRAY_SIZE(io_expected) },
+};
+
+static bool probe(const struct device *dev, uint16_t addr)
 {
-	uint8_t found = 0;
+	struct i2c_msg msg;
+	uint8_t dummy;
+
+	msg.buf = &dummy;
+	msg.len = 0U;
+	msg.flags = I2C_MSG_WRITE | I2C_MSG_STOP;
+
+	return i2c_transfer(dev, &msg, 1, addr) == 0;
+}
+
+static int i2c_bus_scan(const struct shell *sh, const struct i2c_bus *bus)
+{
+	bool acked[I2C_SCAN_ADDR_LAST + 1] = { false };
+	unsigned int found = 0;
+	int ret = 0;
 
 	if (!device_is_ready(bus->dev)) {
-		printk("%s: device not ready\n", bus->name);
-		return;
+		shell_error(sh, "%s: device not ready", bus->name);
+		return -ENODEV;
 	}
 
-	printk("Scanning %s ...\n", bus->name);
-	printk("     0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f\n");
+	shell_print(sh, "%s:", bus->name);
+	shell_print(sh, "     0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f");
 
-	for (uint8_t i = 0; i <= I2C_SCAN_ADDR_LAST; i += 16) {
-		printk("%02x: ", i);
-		for (uint8_t j = 0; j < 16; j++) {
-			uint8_t addr = i + j;
-			struct i2c_msg msg;
-			uint8_t dummy;
+	for (uint16_t row = 0; row <= I2C_SCAN_ADDR_LAST; row += 16U) {
+		shell_fprintf(sh, SHELL_NORMAL, "%02x: ", row);
+		for (uint16_t col = 0; col < 16U; col++) {
+			uint16_t addr = row + col;
 
-			if (addr < I2C_SCAN_ADDR_FIRST || addr > I2C_SCAN_ADDR_LAST) {
-				printk("   ");
+			if ((addr < I2C_SCAN_ADDR_FIRST) || (addr > I2C_SCAN_ADDR_LAST)) {
+				shell_fprintf(sh, SHELL_NORMAL, "   ");
 				continue;
 			}
 
-			msg.buf = &dummy;
-			msg.len = 0U;
-			msg.flags = I2C_MSG_WRITE | I2C_MSG_STOP;
-
-			if (i2c_transfer(bus->dev, &msg, 1, addr) == 0) {
-				printk("%02x ", addr);
+			acked[addr] = probe(bus->dev, addr);
+			if (acked[addr]) {
+				shell_fprintf(sh, SHELL_NORMAL, "%02x ", addr);
 				found++;
 			} else {
-				printk("-- ");
+				shell_fprintf(sh, SHELL_NORMAL, "-- ");
 			}
 		}
-		printk("\n");
+		shell_fprintf(sh, SHELL_NORMAL, "\n");
 	}
 
-	printk("%s: %u device(s) found\n\n", bus->name, found);
+	shell_print(sh, "%s: %u device(s) found", bus->name, found);
+
+	for (size_t i = 0; i < bus->n_expected; i++) {
+		const struct i2c_expected *exp = &bus->expected[i];
+
+		if (acked[exp->addr]) {
+			shell_print(sh, "  0x%02x %s: present", exp->addr, exp->name);
+		} else {
+			shell_error(sh, "  0x%02x %s: MISSING", exp->addr, exp->name);
+			ret = -ENODEV;
+		}
+	}
+
+	return ret;
 }
 
-void i2c_scan_all(void)
+int i2c_scan_test_run(const struct shell *sh)
 {
+	int ret = 0;
+
 	for (size_t i = 0; i < ARRAY_SIZE(buses); i++) {
-		i2c_bus_scan(&buses[i]);
+		int err = i2c_bus_scan(sh, &buses[i]);
+
+		if (err != 0) {
+			ret = err;
+		}
 	}
 
-	printk("Scan done. Use the shell (\"i2c scan i2c@50005400\" / "
-	       "\"i2c scan i2c@50005800\") to re-scan after connecting a device.\n");
+	return ret;
 }

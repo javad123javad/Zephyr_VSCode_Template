@@ -2,9 +2,10 @@
  * MAX98357A I2S amp/DAC on io_i2s (i2s1). It has no control bus (no
  * I2C/SPI, no Zephyr devicetree binding of its own) - it just plays
  * whatever standard I2S stream it's fed, so the "device" here is
- * simply the i2s1 controller. This runs its own thread that
- * continuously streams a ~689Hz test tone (identical on both
- * channels); nothing is logged per block.
+ * simply the i2s1 controller. Each test run plays a ~689Hz test tone
+ * (identical on both channels) for I2S_TEST_DURATION_MS: audible
+ * output is the actual pass criterion, the test itself can only check
+ * that the stream ran without a driver error or DMA underrun.
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -15,11 +16,14 @@
 #include <zephyr/device.h>
 #include <zephyr/drivers/i2s.h>
 #include <zephyr/sys/iterable_sections.h>
+#include <zephyr/sys/util.h>
 
 #define I2S_SAMPLE_NO    64
 #define I2S_FRAME_CLK_HZ 44100
 #define I2S_NUM_BLOCKS   4
 #define I2S_BLOCK_SIZE   (2 * sizeof(int16_t) * I2S_SAMPLE_NO) /* stereo, 16-bit */
+#define I2S_TEST_DURATION_MS 2000
+#define I2S_ALLOC_TIMEOUT_MS 100
 
 /* One full cycle of a sine wave; tiling these blocks back-to-back
  * produces a continuous, glitch-free ~689Hz (44100/64) tone.
@@ -58,20 +62,36 @@ static void i2s_fill_block(int16_t *block)
 	}
 }
 
-static void i2s_playback_thread(void *p1, void *p2, void *p3)
+K_SEM_DEFINE(i2s_start_sem, 0, 1);
+K_SEM_DEFINE(i2s_done_sem, 0, 1);
+static int i2s_result;
+
+static int i2s_queue_block(void)
 {
-	struct i2s_config cfg;
 	void *block;
 	int ret;
 
-	ARG_UNUSED(p1);
-	ARG_UNUSED(p2);
-	ARG_UNUSED(p3);
-
-	if (!device_is_ready(i2s_dev)) {
-		printk("I2S: device not ready\n");
-		return;
+	ret = k_mem_slab_alloc(&i2s_tx_mem_slab, &block, K_MSEC(I2S_ALLOC_TIMEOUT_MS));
+	if (ret < 0) {
+		printk("I2S: block alloc failed (%d)\n", ret);
+		return ret;
 	}
+	i2s_fill_block(block);
+
+	ret = i2s_write(i2s_dev, block, I2S_BLOCK_SIZE);
+	if (ret < 0) {
+		printk("I2S: write failed (%d)\n", ret);
+		k_mem_slab_free(&i2s_tx_mem_slab, block);
+	}
+
+	return ret;
+}
+
+static int i2s_play(uint32_t duration_ms)
+{
+	const uint32_t n_blocks = duration_ms * (I2S_FRAME_CLK_HZ / 1000U) / I2S_SAMPLE_NO;
+	struct i2s_config cfg;
+	int ret;
 
 	cfg.word_size = 16U;
 	cfg.channels = 2U;
@@ -86,69 +106,96 @@ static void i2s_playback_thread(void *p1, void *p2, void *p3)
 	ret = i2s_configure(i2s_dev, I2S_DIR_TX, &cfg);
 	if (ret < 0) {
 		printk("I2S: configure failed (%d)\n", ret);
-		return;
+		return ret;
 	}
 
 	/* Pre-fill the whole TX queue before starting playback. Each block
 	 * is only ~1.45ms of audio (64 samples @ 44.1kHz); starting with
 	 * just one block queued left no headroom for this thread to keep
-	 * up once playing, and the DMA underran waiting for the next one
-	 * (queue_get() failed with an empty queue right after the first
-	 * block finished). Filling all I2S_NUM_BLOCKS slots first gives
-	 * several block-times of buffer headroom.
+	 * up once playing, and the DMA underran waiting for the next one.
+	 * Filling all I2S_NUM_BLOCKS slots first gives several block-times
+	 * of buffer headroom.
 	 */
 	for (unsigned int i = 0; i < I2S_NUM_BLOCKS; i++) {
-		ret = k_mem_slab_alloc(&i2s_tx_mem_slab, &block, K_FOREVER);
+		ret = i2s_queue_block();
 		if (ret < 0) {
-			printk("I2S: prefill alloc %u failed (%d)\n", i, ret);
-			return;
-		}
-		i2s_fill_block(block);
-
-		ret = i2s_write(i2s_dev, block, I2S_BLOCK_SIZE);
-		if (ret < 0) {
-			printk("I2S: prefill write %u failed (%d)\n", i, ret);
-			return;
+			(void)i2s_trigger(i2s_dev, I2S_DIR_TX, I2S_TRIGGER_DROP);
+			return ret;
 		}
 	}
-
-	printk("I2S: prefilled %u/%u blocks, starting\n", I2S_NUM_BLOCKS, I2S_NUM_BLOCKS);
 
 	ret = i2s_trigger(i2s_dev, I2S_DIR_TX, I2S_TRIGGER_START);
 	if (ret < 0) {
 		printk("I2S: trigger start failed (%d)\n", ret);
-		return;
+		(void)i2s_trigger(i2s_dev, I2S_DIR_TX, I2S_TRIGGER_DROP);
+		return ret;
 	}
 
-	printk("I2S @ io_i2s: playing ~%u Hz test tone into MAX98357A\n",
-	       I2S_FRAME_CLK_HZ / I2S_SAMPLE_NO);
-
-	for (uint32_t block_no = 1;; block_no++) {
-		ret = k_mem_slab_alloc(&i2s_tx_mem_slab, &block, K_FOREVER);
+	for (uint32_t i = I2S_NUM_BLOCKS; i < n_blocks; i++) {
+		ret = i2s_queue_block();
 		if (ret < 0) {
-			printk("I2S: alloc failed after %u blocks (%d)\n", block_no, ret);
-			return;
+			printk("I2S: stream stopped after %u of %u blocks\n", i, n_blocks);
+			(void)i2s_trigger(i2s_dev, I2S_DIR_TX, I2S_TRIGGER_DROP);
+			return ret;
 		}
-		i2s_fill_block(block);
+	}
 
-		ret = i2s_write(i2s_dev, block, I2S_BLOCK_SIZE);
-		if (ret < 0) {
-			printk("I2S: stream write failed after %u blocks (%d)\n",
-			       block_no, ret);
-			return;
-		}
+	ret = i2s_trigger(i2s_dev, I2S_DIR_TX, I2S_TRIGGER_DRAIN);
+	if (ret < 0) {
+		printk("I2S: trigger drain failed (%d)\n", ret);
+		(void)i2s_trigger(i2s_dev, I2S_DIR_TX, I2S_TRIGGER_DROP);
+		return ret;
+	}
+
+	/* Let the queued blocks finish so the next run finds the stream idle */
+	k_msleep(DIV_ROUND_UP((I2S_NUM_BLOCKS + 1U) * I2S_SAMPLE_NO * 1000U, I2S_FRAME_CLK_HZ));
+
+	return 0;
+}
+
+static void i2s_playback_thread(void *p1, void *p2, void *p3)
+{
+	ARG_UNUSED(p1);
+	ARG_UNUSED(p2);
+	ARG_UNUSED(p3);
+
+	for (;;) {
+		k_sem_take(&i2s_start_sem, K_FOREVER);
+		i2s_result = i2s_play(I2S_TEST_DURATION_MS);
+		k_sem_give(&i2s_done_sem);
 	}
 }
 
-/* Priority -1: higher priority than main()'s default (0). Keeping the
- * TX queue fed is time-critical (~1.45ms per block); main()'s tick
- * loop (I2C/CAN housekeeping) is not, so audio should preempt it
- * rather than the other way around - with equal-or-lower priority,
- * main()'s periodic work (BME280 sampling in particular) was eating
- * into the buffer margin and causing underruns after a few hundred
- * blocks.
- *
- * Delayed start so this thread's prints don't interleave with
- * main()'s boot-time scan/init output on the shared UART.
+/* Priority -1: keeping the TX queue fed is time-critical (~1.45ms per
+ * block). Streaming from a lower-priority thread (such as the shell's)
+ * lets other work eat into the buffer margin; that caused underruns
+ * after a few hundred blocks during bring-up.
  */
-K_THREAD_DEFINE(i2s_playback_tid, 1024, i2s_playback_thread, NULL, NULL, NULL, -1, 0, 1500);
+K_THREAD_DEFINE(i2s_playback_tid, 1024, i2s_playback_thread, NULL, NULL, NULL, -1, 0, 0);
+
+int i2s_test_run(const struct shell *sh)
+{
+	if (!device_is_ready(i2s_dev)) {
+		shell_error(sh, "I2S: device not ready");
+		return -ENODEV;
+	}
+
+	shell_print(sh, "I2S @ io_i2s: playing ~%u Hz test tone into the MAX98357A for %u ms",
+		    I2S_FRAME_CLK_HZ / I2S_SAMPLE_NO, I2S_TEST_DURATION_MS);
+
+	k_sem_reset(&i2s_done_sem);
+	k_sem_give(&i2s_start_sem);
+
+	if (k_sem_take(&i2s_done_sem, K_MSEC(I2S_TEST_DURATION_MS + 3000)) != 0) {
+		shell_error(sh, "I2S: playback did not finish");
+		return -ETIMEDOUT;
+	}
+
+	if (i2s_result != 0) {
+		shell_error(sh, "I2S: playback failed (%d)", i2s_result);
+		return i2s_result;
+	}
+
+	shell_print(sh, "I2S: stream completed without errors - check the tone was audible");
+	return 0;
+}

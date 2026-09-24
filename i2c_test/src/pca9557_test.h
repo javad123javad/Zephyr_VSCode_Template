@@ -3,15 +3,11 @@
 #ifndef PCA9557_TEST_H_
 #define PCA9557_TEST_H_
 
-/* Configures all 8 pins of the PCA9557PW,118 GPIO expander (io_i2c
- * @ 0x19) as outputs, ready for pca9557_test_step().
- */
-void pca9557_test_init(void);
+#include <zephyr/shell/shell.h>
 
-/* Advances a walking-bit pattern by one pin. Call periodically (the
- * app calls this once per 500ms tick). Errors only are logged - no
- * per-step logging, to keep the console usable.
+/* Walks a high bit across all 8 pins of the PCA9557PW,118 GPIO expander
+ * (io_i2c @ 0x19), verifying every step, then drives all pins low.
  */
-void pca9557_test_step(void);
+int pca9557_test_run(const struct shell *sh);
 
 #endif /* PCA9557_TEST_H_ */
