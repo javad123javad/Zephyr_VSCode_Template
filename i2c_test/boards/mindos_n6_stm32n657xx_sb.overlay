@@ -89,6 +89,22 @@
 	};
 };
 
+/* M24C64-R: 64 Kbit (8 KiB) I2C EEPROM holding the board configuration
+ * settings. E0-E2 are tied low, giving address 0x50 (it is the device
+ * seen at 0x50 in the io_cnf_i2c scan). 32-byte pages, 16-bit word
+ * address, 5 ms maximum write cycle time (datasheet tW).
+ */
+&i2c1 {
+	board_eeprom: eeprom@50 {
+		compatible = "st,m24c64", "atmel,at24";
+		reg = <0x50>;
+		size = <DT_SIZE_K(8)>;
+		pagesize = <32>;
+		address-width = <16>;
+		timeout = <5>;
+	};
+};
+
 &i2c2 {
 	bme280: bme280@76 {
 		compatible = "bosch,bme280";

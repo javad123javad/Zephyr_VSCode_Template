@@ -26,6 +26,7 @@ Layout
        usb_device_test.c / .h      USB1 as a CDC-ACM device (runs its own thread)
        lan_test.c / .h             On-board Ethernet + DHCPv4 client
        axisram_test.c / .h         AXISRAM3 extra-SRAM write/read-back sanity check
+       eeprom_test.c / .h          M24C64 board-configuration EEPROM check
 
 Buses and devices
 ******************
@@ -52,16 +53,17 @@ Ethernet (also already enabled in the same file):
   PF11/PF12/PF13, PHY at MDIO address 0 (nodelabel ``eth_phy``,
   generic ``ethernet-phy`` binding)
 
-``boards/*.overlay`` adds four devices found during bring-up:
+``boards/*.overlay`` adds five devices found during bring-up:
 
-============================ ======== =======================================
-Device                       Bus      Notes
-============================ ======== =======================================
-PCA9557PW,118 GPIO expander  io_i2c   0x19 (A0=VCC, A1=GND, A2=GND)
-BME280 environmental sensor  io_i2c   0x76 (SDO -> GND)
-MCP2515 CAN controller       io_spi   8MHz osc, INT on PB3, CS via hw NSS
-MAX98357A I2S amp/DAC        io_i2s   SD/GAIN tied to VCC on this module
-============================ ======== =======================================
+============================ ========== =====================================
+Device                       Bus        Notes
+============================ ========== =====================================
+M24C64-RMN6TP EEPROM         io_cnf_i2c 0x50 (E0-E2 -> GND), board config
+PCA9557PW,118 GPIO expander  io_i2c     0x19 (A0=VCC, A1=GND, A2=GND)
+BME280 environmental sensor  io_i2c     0x76 (SDO -> GND)
+MCP2515 CAN controller       io_spi     8MHz osc, INT on PB3, CS via hw NSS
+MAX98357A I2S amp/DAC        io_i2s     SD/GAIN tied to VCC on this module
+============================ ========== =====================================
 
 Plus two plain GPIO pin pairs, one per USB port's MIC2026-1YM power
 switch (not on any of the buses above):
@@ -288,6 +290,21 @@ So, on this board, as things stand:
   (``ATTR_MPU_RAM``) also maps to non-executable RAM
   (``arch/arm/core/mpu/arm_mpu.c`` -> ``REGION_RAM_ATTR`` in
   ``arm_mpu_v8.h``, which sets the MPU's ``NOT_EXEC`` bit).
+
+**M24C64 board-configuration EEPROM** (``eeprom_test.c``): 8 KiB,
+32-byte pages, 16-bit word address, driven by Zephyr's in-tree
+``atmel,at24`` driver (``compatible = "st,m24c64", "atmel,at24"``).
+Because it holds real board settings, the boot-time test changes
+nothing: it hex-dumps the first 64 bytes read-only, then writes the
+bitwise complement of the last page (0x1fe0-0x1fff), verifies it,
+writes the saved original back and verifies that too. Only a power
+loss during those few milliseconds could leave the last page altered;
+if the restore fails the original bytes are printed so they can be
+written back by hand. A write failure with ``-EIO`` usually means the
+chip's WC (write control) pin is held high; if WC is wired to a GPIO,
+add it to the node as ``wp-gpios`` and the driver will drive it. For
+manual access, ``CONFIG_EEPROM_SHELL`` provides e.g.
+``eeprom read eeprom@50 0 32`` in the shell.
 
 **XIP is the real answer to "space for application code".** On the
 default ``mindos_n6`` variant (see "Building and flashing" below) the

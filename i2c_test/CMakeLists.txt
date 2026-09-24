@@ -37,6 +37,7 @@ target_sources(app PRIVATE
 	src/usb_device_test.c
 	src/lan_test.c
 	src/axisram_test.c
+	src/eeprom_test.c
 )
 
 # CONFIG_CODE_DATA_RELOCATION to AXISRAM3 was tried here and reverted:
