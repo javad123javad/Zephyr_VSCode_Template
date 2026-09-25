@@ -15,6 +15,7 @@ Layout
      Kconfig                       app-level Kconfig root (see "USB1 as a device" below)
      boards/                       board-target-specific devicetree overlays
      pca9557_driver/               out-of-tree GPIO driver (see its own README)
+     card/dev_card.yaml            description of this I/O card, for its EEPROM
      src/
        main.c                      boot: USB2 5V on, DHCPv4 client started
        mind_shell.c                "mind" shell command (test_all + single tests)
@@ -41,7 +42,8 @@ I2C (both already enabled, 100 kHz standard mode, in
 SPI (also already enabled in the same file):
 
 * ``spi2`` (nodelabel ``io_spi``) - SCK on PF2, MISO on PD6, MOSI on
-  PD2, hardware NSS (CS) on PA11
+  PD2. IO_SPI_CS0 (PA11) is a GPIO driven by the ``mind_io`` SPI port
+  slots, not the SPI hardware NSS.
 
 I2S (also already enabled in the same file):
 
@@ -61,8 +63,8 @@ Device                       Bus        Notes
 ============================ ========== =====================================
 M24C64-RMN6TP EEPROM         io_cnf_i2c 0x50 (E0-E2 -> GND), board config
 PCA9557PW,118 GPIO expander  io_i2c     0x19 (A0=VCC, A1=GND, A2=GND)
-BME280 environmental sensor  io_i2c     0x76 (SDO -> GND)
-MCP2515 CAN controller       io_spi     8MHz osc, INT on PB3, CS via hw NSS
+BME280 environmental sensor  I2C port 0 0x76 (SDO -> GND), card port SENSOR1
+MCP2515 CAN controller       SPI port 0 8MHz osc, INT on IO_GPIO3, port CAN1
 MAX98357A I2S amp/DAC        io_i2s     SD/GAIN tied to VCC on this module
 ============================ ========== =====================================
 
@@ -81,18 +83,41 @@ USB2 OCS/FLAG#   PB14   active-low input, asserted on overcurrent/fault
 The overlays also enable ``&gpdma1``, which the I2S driver needs (see
 "MAX98357A" below).
 
+**I/O card abstraction (mind_io).** The app uses the ``../mind_io``
+module. The card's EEPROM holds a description of the card
+(``card/dev_card.yaml``), which ``mind_io`` reads at boot:
+
+* The BME280 and MCP2515 are external modules, so they sit under the
+  card's port slots (``&mio_i2c_port0``, ``&mio_spi_port0``) rather than
+  directly under ``&i2c2`` / ``&spi2``. The MCP2515 interrupt is given
+  as the connector GPIO ``<&mio_gpios 3 ...>``.
+* The PCA9557 is mounted on the card, so it stays on ``&i2c2``. The card
+  declares it with no lines, which leaves all eight pins to the
+  ``pca9557`` test.
+* A card without its description (blank EEPROM) boots with the ports
+  not ready and the card's fault LED on.
+
+Program the description once, then reset the board::
+
+   python3 ../mind_io/scripts/mio_card.py build card/dev_card.yaml -o dev_card.bin
+   python3 ../mind_io/scripts/mio_card.py program dev_card.bin --port /dev/ttyACM0
+
+``mio info`` / ``mio ports`` / ``mio lines`` show what was read. See
+``../mind_io/doc/getting-started.rst``.
+
 What it does
 ************
 
 The tests run from the shell, through the ``mind`` command
 (``mind_shell.c``)::
 
-   uart:~$ mind test_all    # every test below, then a PASS/FAIL summary
+   uart:~$ mind test_all    # every test below, then a PASS/SKIP/FAIL summary
    uart:~$ mind eeprom      # a single test; plain "mind" lists them all
 
 ================ ===========================================================
 Command          Passes when
 ================ ===========================================================
+``card``         mind_io read a valid I/O card description at boot
 ``axisram``      a buffer in AXISRAM3 reads back what was written
 ``eeprom``       the M24C64 last-page write/read-back and restore succeed
 ``i2c_scan``     every device described in the overlays ACKs its address
@@ -107,6 +132,13 @@ Command          Passes when
 
 Each command prints its details and returns 0 on success or a
 negative errno value, so it also works from shell scripts.
+
+Tests of parts the plugged-in card doesn't provide, according to its
+description, are reported as **SKIP** with the reason instead of
+FAIL. That covers ``eeprom`` (no card EEPROM), ``pca9557`` (no on-card
+PCA9557), ``bme280`` (no I2C port 0), ``can`` (no SPI port 0), ``i2s``
+(I2S not used) and ``usb`` (USB1 not routed). ``test_all`` fails only
+if a test fails.
 ``test_all`` runs the two tests that wait on something external
 (``lan`` and ``usb``) last. Only two things still happen at boot,
 because they are services rather than tests: USB2's 5V switch is
@@ -359,7 +391,7 @@ device that doesn't exist. ``boards/*.overlay`` sets
 Building and flashing
 **********************
 
-Two boot modes are supported:
+Three boot modes are supported:
 
 * **XIP from external flash (default ``mindos_n6`` variant).** MCUboot
   (built for the ``/fsbl`` variant) is loaded by the Boot ROM, then
@@ -379,18 +411,33 @@ Two boot modes are supported:
   flash boot and reset. The console shows the MCUboot banner and
   ``Jumping to the first image slot`` before the test output.
 
-* **RAM-loaded over USB (``/sb`` variant).** The whole image is loaded
-  into the 511KB boot window; nothing is written to external flash.
+* **Boot-ROM image in external flash, over ST-LINK (``/fsbl`` variant).**
+  The image is written at the start of the external flash over SWD and
+  loaded by the Boot ROM into the 511KB boot window (no MCUboot, not XIP).
+  This overwrites MCUboot; rebuild and flash the default variant to go
+  back to XIP.
+
+  .. code-block:: console
+
+     west build -p always -b mindos_n6/stm32n657xx/fsbl workspace/i2c_test
+     west flash
+
+  Flash in development boot, then switch the boot pins to flash boot and
+  reset.
+
+* **RAM-loaded over USB serial boot (``/sb`` variant).** The Boot ROM's
+  USB DFU (USB1, device ``0483:df11``) loads the image into the boot
+  window; nothing is written to external flash. Needs the boot pins in
+  serial boot and a working USB1 cable to the PC; it does not use the
+  ST-LINK.
 
   .. code-block:: console
 
      west build -p always -b mindos_n6/stm32n657xx/sb workspace/i2c_test
      west flash
 
-``boards/mindos_n6_stm32n657xx.overlay`` (XIP) and
-``boards/mindos_n6_stm32n657xx_sb.overlay`` (``/sb``) have the same
-contents and must be kept in sync. There is no overlay for the
-standalone ``/fsbl`` variant.
+The devices are described once, in ``boards/mindos_n6_i2c_test.dtsi``,
+which the overlay of each variant includes.
 
 Then open the console UART (``usart1``, 115200 8N1), run
 ``mind test_all``, and listen at the

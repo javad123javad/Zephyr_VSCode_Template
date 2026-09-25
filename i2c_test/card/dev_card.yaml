@@ -1,0 +1,33 @@
+# Description of the mindos_n6 development I/O card for the i2c_test bring-up
+# app. Program it into the card EEPROM with:
+#
+#   python3 ../mind_io/scripts/mio_card.py build card/dev_card.yaml -o dev_card.bin
+#   python3 ../mind_io/scripts/mio_card.py program dev_card.bin --port /dev/ttyACM0
+#
+# then reset the board. "mio info" and "mind card" show the result.
+#
+# The PCA9557 is declared as an on-card device but has no LINE records, so
+# mind_io leaves it alone and the "mind pca9557" test owns all eight pins.
+# SPDX-License-Identifier: Apache-2.0
+
+identity:
+  name: MINDOS-IO-DEV
+  serial: DEV0001
+  hw_rev: "1.0"
+  date: 2026-09-25
+
+# Connector resources used without records of their own. Add UART / RS485 if
+# this card routes them to a terminal.
+resources: [I2S, USB1, USB2, FAULT_LED]
+
+onboard_devices:
+  - {index: 0, type: PCA9557, bus: I2C_IO, address: 0x19}
+
+i2c_ports:
+  - {slot: 0, label: SENSOR1, bus: I2C_IO, topology: direct, speed: standard}
+
+spi_ports:
+  - {slot: 0, label: CAN1, cs: SPI_CS0, cs_active: low, max_freq: 10000000}
+
+lines:
+  - {label: CAN1_INT, pin: GPIO3, direction: input, active: low, pull: up, role: irq, port: spi0}

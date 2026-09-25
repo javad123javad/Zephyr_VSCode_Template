@@ -1,10 +1,10 @@
 /*
- * MCP2515 SPI CAN controller on io_spi (8MHz oscillator, INT on PB3,
- * CS via spi2's hardware NSS pin). Runs in internal loopback mode, so
- * the controller, its SPI link and its interrupt line are exercised
- * without a second node on the bus: one frame is sent and must be
- * received back. Set CAN_TEST_LOOPBACK to 0 once a second CAN node is
- * connected to answer on CAN_TEST_ID.
+ * MCP2515 SPI CAN controller on the I/O card's SPI port 0 (8MHz oscillator,
+ * INT on connector IO_GPIO3, chip-select driven by the mind_io port slot).
+ * Runs in internal loopback mode, so the controller, its SPI link and its
+ * interrupt line are exercised without a second node on the bus: one frame
+ * is sent and must be received back. Set CAN_TEST_LOOPBACK to 0 once a
+ * second CAN node is connected to answer on CAN_TEST_ID.
  *
  * SPDX-License-Identifier: Apache-2.0
  */

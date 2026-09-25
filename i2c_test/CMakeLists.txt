@@ -5,7 +5,11 @@ cmake_minimum_required(VERSION 3.20.0)
 # Out-of-tree PCA9557 GPIO expander driver (see pca9557_driver/README
 # for why this needed its own driver instead of Zephyr's in-tree
 # "nxp,pca95xx").
-set(ZEPHYR_EXTRA_MODULES ${CMAKE_CURRENT_SOURCE_DIR}/pca9557_driver)
+# mind_io: the I/O card abstraction (card EEPROM, port slots, named lines).
+set(ZEPHYR_EXTRA_MODULES
+  ${CMAKE_CURRENT_SOURCE_DIR}/pca9557_driver
+  ${CMAKE_CURRENT_SOURCE_DIR}/../mind_io
+)
 
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(i2c_test)
