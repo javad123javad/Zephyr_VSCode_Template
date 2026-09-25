@@ -1,0 +1,79 @@
+# SPDX-License-Identifier: Apache-2.0
+
+description: |
+  DIN41612 I/O card connector of a mind processing board.
+
+  Maps the fixed connector signals to the host peripherals and pins of this
+  processing board. The I/O card plugged into the connector describes itself
+  in an EEPROM on I2C_CNF; the mind_io module reads it at boot and decides at
+  runtime which of these resources the card uses.
+
+  Port slots are child nodes with the "mind,io-i2c-port" and
+  "mind,io-spi-port" compatibles. Applications put their own devices under
+  them.
+
+  Example:
+
+    mio_connector: connector {
+      compatible = "mind,din41612-io";
+      i2c-cnf = <&i2c1>;
+      i2c-io = <&i2c2>;
+      spi = <&spi2>;
+      spi-cs0-gpios = <&gpioa 11 GPIO_ACTIVE_HIGH>;
+      fault-led-gpios = <&gpiod 5 GPIO_ACTIVE_HIGH>;
+      io-gpios = <&gpiod 11 0>, <&gpioe 0 0>, <&gpiob 2 0>, <&gpiob 3 0>;
+
+      mio_i2c_port0: i2c-port-0 {
+        compatible = "mind,io-i2c-port";
+        slot = <0>;
+        #address-cells = <1>;
+        #size-cells = <0>;
+      };
+    };
+
+compatible: "mind,din41612-io"
+
+properties:
+  i2c-cnf:
+    type: phandle
+    required: true
+    description: Host I2C bus wired to IO_CNF_SCL / IO_CNF_SDA (card EEPROM bus).
+
+  i2c-io:
+    type: phandle
+    description: Host I2C bus wired to IO_I2C_SCL / IO_I2C_SDA.
+
+  spi:
+    type: phandle
+    description: |
+      Host SPI bus wired to IO_SPI_SCK / MISO / MOSI. The port slots drive the
+      chip-selects themselves, so the bus must not claim IO_SPI_CS0 as its
+      hardware NSS pin.
+
+  uart:
+    type: phandle
+    description: Host UART wired to IO_UART_TX / IO_UART_RX.
+
+  rs485:
+    type: phandle
+    description: Host UART driving the RS-485 transceiver of IO_RS485_IN_A / B.
+
+  i2s:
+    type: phandle
+    description: Host I2S controller wired to IO_I2S_*.
+
+  spi-cs0-gpios:
+    type: phandle-array
+    description: |
+      Host GPIO of IO_SPI_CS0. Use GPIO_ACTIVE_HIGH: the active level comes
+      from the card description.
+
+  fault-led-gpios:
+    type: phandle-array
+    description: Host GPIO of IO_F/A, the card's red fault LED (on = high).
+
+  io-gpios:
+    type: phandle-array
+    description: |
+      Host GPIOs of IO_GPIO0..IO_GPIO3, in that order. Use flags 0: direction,
+      active level and pulls come from the card description.

@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Vendor prefixes used by the mind_io module.
+mind	Mind

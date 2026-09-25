@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: Apache-2.0
+
+description: |
+  I2C port slot of a mind I/O card. Child of a "mind,din41612-io" node.
+  At boot the slot is bound to the host I2C bus the card assigns to it; if
+  the card has no I2C port in this slot, the slot and every device under it
+  are not ready.
+
+compatible: "mind,io-i2c-port"
+
+include: i2c-controller.yaml
+
+properties:
+  slot:
+    type: int
+    required: true
+    description: Slot number referenced by the card's I2C_PORT records (0..3).

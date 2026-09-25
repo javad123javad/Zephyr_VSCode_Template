@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: Apache-2.0
+
+description: |
+  GPIO nexus of the DIN41612 I/O connector: maps connector IO_GPIO<n> to the
+  host GPIO of this processing board at build time. Devicetree overlays can
+  then use connector GPIO numbers, e.g. for the interrupt line of a device
+  attached to a port slot:
+
+    int-gpios = <&mio_gpios 3 GPIO_ACTIVE_LOW>;
+
+compatible: "mind,din41612-gpios"
+
+include: gpio-nexus.yaml

@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: Apache-2.0
+
+description: |
+  Test-only SPI emulator that echoes the transmitted bytes and records the
+  chip-select state and bus frequency seen during each transfer.
+
+compatible: "mind,test-spi-echo"
+
+include: spi-device.yaml

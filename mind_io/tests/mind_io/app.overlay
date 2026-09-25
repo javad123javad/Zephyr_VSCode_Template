@@ -1,0 +1,88 @@
+/*
+ * A mind,din41612-io connector on native_sim's emulated buses:
+ * I2C_CNF = i2c0 (with the emulated card EEPROM), I2C_IO = a second
+ * emulated I2C bus (with the on-card PCA9557), SPI = spi0 (with an echo
+ * device), GPIOs on gpio0.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <zephyr/dt-bindings/gpio/gpio.h>
+#include <zephyr/dt-bindings/i2c/i2c.h>
+
+/ {
+	i2c_io_emul: i2c@1100 {
+		compatible = "zephyr,i2c-emul-controller";
+		reg = <0x1100 4>;
+		clock-frequency = <I2C_BITRATE_FAST>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		status = "okay";
+
+		test_pca9557: pca9557@19 {
+			compatible = "mind,test-pca9557";
+			reg = <0x19>;
+		};
+	};
+
+	mio_gpios: connector-gpios {
+		compatible = "mind,din41612-gpios";
+		#gpio-cells = <2>;
+		gpio-map-mask = <0xffffffff 0xffffffc0>;
+		gpio-map-pass-thru = <0 0x3f>;
+		gpio-map = <0 0 &gpio0 0 0>, <1 0 &gpio0 1 0>, <2 0 &gpio0 2 0>, <3 0 &gpio0 3 0>;
+	};
+
+	mio_connector: connector {
+		compatible = "mind,din41612-io";
+		i2c-cnf = <&i2c0>;
+		i2c-io = <&i2c_io_emul>;
+		spi = <&spi0>;
+		spi-cs0-gpios = <&gpio0 4 GPIO_ACTIVE_HIGH>;
+		fault-led-gpios = <&gpio0 5 GPIO_ACTIVE_HIGH>;
+		io-gpios = <&mio_gpios 0 0>, <&mio_gpios 1 0>, <&mio_gpios 2 0>, <&mio_gpios 3 0>;
+
+		mio_i2c_port0: i2c-port-0 {
+			compatible = "mind,io-i2c-port";
+			slot = <0>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+		};
+
+		mio_i2c_port1: i2c-port-1 {
+			compatible = "mind,io-i2c-port";
+			slot = <1>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+		};
+
+		mio_spi_port0: spi-port-0 {
+			compatible = "mind,io-spi-port";
+			slot = <0>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+		};
+
+		mio_spi_port1: spi-port-1 {
+			compatible = "mind,io-spi-port";
+			slot = <1>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+		};
+	};
+};
+
+&i2c0 {
+	card_eeprom: eeprom@50 {
+		compatible = "mind,test-card-eeprom";
+		reg = <0x50>;
+	};
+};
+
+&spi0 {
+	spi_echo: echo@0 {
+		compatible = "mind,test-spi-echo";
+		reg = <0>;
+		spi-max-frequency = <50000000>;
+	};
+};

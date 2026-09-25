@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: Apache-2.0
+
+config TEST_CARD_IMAGE_GOLDEN
+	bool "Preload the emulated card EEPROM with the golden card image"
+	default y
+	help
+	  If disabled, the emulated card EEPROM reads as erased.
+
+config TEST_CARD_ABSENT
+	bool "Test build without any card EEPROM on I2C_CNF"
+
+source "Kconfig.zephyr"

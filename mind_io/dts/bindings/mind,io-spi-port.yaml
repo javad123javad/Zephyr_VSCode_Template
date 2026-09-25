@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: Apache-2.0
+
+description: |
+  SPI port slot of a mind I/O card. Child of a "mind,din41612-io" node.
+  Transfers go to the connector SPI bus with the chip-select the card assigns
+  to this slot (IO_SPI_CS0, a connector GPIO or an on-card expander pin),
+  driven by the slot. If the card has no SPI port in this slot, the slot and
+  every device under it are not ready. Devices under the slot use reg = <0>.
+
+compatible: "mind,io-spi-port"
+
+include: spi-controller.yaml
+
+properties:
+  slot:
+    type: int
+    required: true
+    description: Slot number referenced by the card's SPI_PORT records (0..3).

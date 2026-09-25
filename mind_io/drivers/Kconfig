@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: Apache-2.0
+
+config MIND_IO_I2C_PORT
+	bool "mind_io I2C port slots"
+	default y
+	depends on DT_HAS_MIND_IO_I2C_PORT_ENABLED
+	help
+	  I2C controller driver for the card's I2C port slots: forwards
+	  transfers to the host bus the card assigns to the slot.
+
+config MIND_IO_SPI_PORT
+	bool "mind_io SPI port slots"
+	default y
+	depends on DT_HAS_MIND_IO_SPI_PORT_ENABLED
+	depends on SPI
+	help
+	  SPI controller driver for the card's SPI port slots: drives the
+	  chip-select the card assigns to the slot and forwards transfers to
+	  the host SPI bus.

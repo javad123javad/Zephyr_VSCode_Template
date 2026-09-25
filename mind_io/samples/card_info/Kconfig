@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: Apache-2.0
+
+config SAMPLE_BLINK_LINE
+	string "Label of the card line to blink"
+	default "LED1"
+	help
+	  Output line of the card that the sample toggles every 500 ms, if the
+	  card has a line with this label.
+
+source "Kconfig.zephyr"

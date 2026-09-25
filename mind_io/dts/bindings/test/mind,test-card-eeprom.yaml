@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: Apache-2.0
+
+description: Test-only emulator of a 16-bit addressed card EEPROM (8 KiB).
+
+compatible: "mind,test-card-eeprom"
+
+include: i2c-device.yaml

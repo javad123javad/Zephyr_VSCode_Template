@@ -1,0 +1,20 @@
+common:
+  platform_allow:
+    - native_sim
+    - native_sim/native/64
+  integration_platforms:
+    - native_sim
+  tags: mind_io
+tests:
+  mind_io.card:
+    extra_configs:
+      - CONFIG_TEST_CARD_IMAGE_GOLDEN=y
+  mind_io.card.blank:
+    extra_configs:
+      - CONFIG_TEST_CARD_IMAGE_GOLDEN=n
+  mind_io.card.absent:
+    extra_dtc_overlay_files:
+      - no_card.overlay
+    extra_configs:
+      - CONFIG_TEST_CARD_IMAGE_GOLDEN=n
+      - CONFIG_TEST_CARD_ABSENT=y

@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: Apache-2.0
+
+description: Test-only emulator of the PCA9557 register set.
+
+compatible: "mind,test-pca9557"
+
+include: i2c-device.yaml

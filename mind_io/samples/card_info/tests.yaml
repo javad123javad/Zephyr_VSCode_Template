@@ -1,0 +1,8 @@
+sample:
+  name: mind_io card info
+tests:
+  sample.mind_io.card_info:
+    build_only: true
+    platform_allow:
+      - mindos_n6/stm32n657xx/sb
+    tags: mind_io

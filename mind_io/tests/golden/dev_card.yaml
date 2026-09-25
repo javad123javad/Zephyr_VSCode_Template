@@ -1,0 +1,29 @@
+# Reference card used by the C and Python golden-image tests: the mindos_n6
+# development I/O board as it is wired today (BME280 on the I2C port, an
+# MCP2515 CAN module on the SPI port with its interrupt on IO_GPIO3, and two
+# PCA9557 pins used as outputs).
+# SPDX-License-Identifier: Apache-2.0
+
+identity:
+  name: MINDOS-IO-DEV
+  serial: DEV0001
+  hw_rev: "1.0"
+  date: 2026-09-25
+
+# Resources without records of their own; the rest (I2C_CNF, buses, CS0 and
+# GPIOs used by ports and lines) is derived automatically.
+resources: [I2S, USB1, USB2, FAULT_LED]
+
+onboard_devices:
+  - {index: 0, type: PCA9557, bus: I2C_IO, address: 0x19}
+
+i2c_ports:
+  - {slot: 0, label: SENSOR1, bus: I2C_IO, topology: direct, speed: standard}
+
+spi_ports:
+  - {slot: 0, label: CAN1, cs: SPI_CS0, cs_active: low, max_freq: 10000000}
+
+lines:
+  - {label: CAN1_INT, pin: GPIO3, direction: input, active: low, pull: up, role: irq, port: spi0}
+  - {label: RELAY1, pin: EXP0.1, direction: output, active: high, init: inactive, role: relay}
+  - {label: LED1, pin: EXP0.2, direction: output, active: low, init: active, role: led}

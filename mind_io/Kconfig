@@ -1,0 +1,58 @@
+# SPDX-License-Identifier: Apache-2.0
+
+config MIND_IO_CARD_FORMAT
+	bool "mind_io card format library"
+	help
+	  Encoder and decoder of the I/O card description stored in the card
+	  EEPROM. Selected by MIND_IO; can be enabled on its own for tools and
+	  tests.
+
+menuconfig MIND_IO
+	bool "mind_io I/O card abstraction"
+	default y
+	depends on DT_HAS_MIND_DIN41612_IO_ENABLED
+	depends on I2C
+	depends on GPIO
+	select MIND_IO_CARD_FORMAT
+	help
+	  Reads the description of the I/O card plugged into the DIN41612
+	  connector at boot and exposes its ports and lines by name.
+
+if MIND_IO
+
+config MIND_IO_INIT_PRIORITY
+	int "Card read/validation init priority"
+	default 55
+	help
+	  POST_KERNEL priority of the core. It must be after the host I2C bus
+	  that carries I2C_CNF, and before MIND_IO_PORT_INIT_PRIORITY.
+
+config MIND_IO_PORT_INIT_PRIORITY
+	int "Port slot init priority"
+	default 56
+	help
+	  POST_KERNEL priority of the I2C/SPI port slots. Devices attached
+	  under a port slot must initialise after this.
+
+config MIND_IO_CARD_MAX_SIZE
+	int "Maximum card image size"
+	default 512
+	range 12 8192
+	help
+	  Largest card image read from the card EEPROM, in bytes.
+
+config MIND_IO_SHELL
+	bool "mind_io shell commands"
+	default y
+	depends on SHELL
+	help
+	  "mio" shell commands: card information, lines, and raw card EEPROM
+	  access used by scripts/mio_card.py to program cards.
+
+module = MIND_IO
+module-str = mind_io
+source "subsys/logging/Kconfig.template.log_config"
+
+rsource "drivers/Kconfig"
+
+endif # MIND_IO
