@@ -1,6 +1,6 @@
 /*
  * Two MIC2026-1YM USB port power switches (one per USB port):
- *   USB1: EN on PE1, OCS/FLAG# on PB5
+ *   USB1: EN on PE1, OCS/FLAG# on PB0
  *   USB2: EN on PE3, OCS/FLAG# on PB14
  *
  * EN is active-high (drive high to turn on the 5V switch). OCS/FLAG#

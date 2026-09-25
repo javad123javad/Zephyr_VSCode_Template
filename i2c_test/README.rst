@@ -73,7 +73,7 @@ switch (not on any of the buses above):
 Signal           Pin    Notes
 ================ ====== ================================================
 USB1 EN          PE1    active-high output, drive high to enable 5V
-USB1 OCS/FLAG#   PB5    active-low input, asserted on overcurrent/fault
+USB1 OCS/FLAG#   PB0    active-low input, asserted on overcurrent/fault
 USB2 EN          PE3    active-high output, drive high to enable 5V
 USB2 OCS/FLAG#   PB14   active-low input, asserted on overcurrent/fault
 ================ ====== ================================================

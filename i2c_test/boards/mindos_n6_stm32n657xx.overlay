@@ -76,7 +76,7 @@
 / {
 	zephyr,user {
 		usb1-en-gpios = <&gpioe 1 GPIO_ACTIVE_HIGH>;
-		usb1-ocs-gpios = <&gpiob 5 GPIO_ACTIVE_LOW>;
+		usb1-ocs-gpios = <&gpiob 0 GPIO_ACTIVE_LOW>;
 		usb2-en-gpios = <&gpioe 3 GPIO_ACTIVE_HIGH>;
 		usb2-ocs-gpios = <&gpiob 14 GPIO_ACTIVE_LOW>;
 	};
