@@ -1,0 +1,4 @@
+tests:
+  esp32s3_lgvl.ui_nav:
+    platform_allow: native_sim/native/64
+    tags: esp32s3_lgvl
