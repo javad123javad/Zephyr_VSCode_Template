@@ -12,6 +12,7 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(internet_clock, LOG_LEVEL_INF);
 
+#include "backlight.h"
 #include "ui.h"
 #include "wifi.h"
 
@@ -26,6 +27,7 @@ int main(void)
 	}
 	LOG_INF("Display device ready");
 
+	backlight_init();
 	ui_init();
 	lv_timer_handler();
 	display_blanking_off(display_dev);
@@ -39,6 +41,7 @@ int main(void)
 		}
 
 		ui_poll_wifi_scan();
+		backlight_tick();
 		lv_timer_handler();
 		k_sleep(K_MSEC(10));
 	}
