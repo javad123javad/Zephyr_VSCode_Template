@@ -14,6 +14,7 @@ LOG_MODULE_REGISTER(internet_clock, LOG_LEVEL_INF);
 
 #include "backlight.h"
 #include "ui.h"
+#include "weather.h"
 #include "wifi.h"
 
 /* PSRAM init only logs on failure (esp_init_psram(), soc/espressif/
@@ -43,6 +44,7 @@ int main(void)
 	}
 #endif
 
+	weather_init();
 	backlight_init();
 	ui_init();
 	lv_timer_handler();

@@ -12,7 +12,7 @@ Home (Clock + Weather)                  <- default at boot
         ├─ Settings
         │    ├─ Network        (Wi-Fi setup: scan, connect, forget)
         │    ├─ Clock          (UTC offset, quarter-hour resolution)
-        │    ├─ Local          (planned: city -> weather geocoding)
+        │    ├─ Local          (city name -> Open-Meteo geocoding, cached)
         │    └─ Calibrate Touch
         ├─ Shell   (planned: interactive Zephyr shell)
         ├─ Radio   (planned: internet radio via Radio Browser API)
@@ -51,9 +51,9 @@ just delays the same split until the file is even bigger.
 
 ## AD-3: State management — module-owned state, no event bus
 
-**Decision**: each domain module (`wifi.c`, future `weather.c`, `radio.c`)
+**Decision**: each domain module (`wifi.c`, `weather.c`, future `radio.c`)
 owns its state and exposes getters (e.g. `wifi_get_status()`,
-`wifi_get_ssid()`). Screens poll what they need via small per-screen tick
+`wifi_get_ssid()`, `weather_get_status()`). Screens poll what they need via small per-screen tick
 functions (`ui_home_tick()`, ...) called from a thin central dispatcher
 (`ui_tick()` in `ui.c`), instead of one function whose parameter list grows
 with every new domain.
@@ -69,9 +69,13 @@ state needs cross-screen sharing beyond what a getter already provides.
 ## AD-4: Threading — extend existing thread, no new ones for early phases
 
 **Decision**:
-- Periodic network-bound work (SNTP resync today, weather polling once
-  `weather.c` lands) runs from the *existing* `network_thread` in
-  `wifi.c`, not a new thread per feature.
+- Periodic network-bound work (SNTP resync, weather polling) runs from
+  the *existing* `network_thread` in `wifi.c`, not a new thread per
+  feature. `weather_poll()` is called from the same connected-loop tick
+  that used to only handle SNTP; the tick itself was shortened from 1
+  hour to 5 seconds so a freshly-submitted city resolves within seconds
+  rather than up to an hour, while SNTP's own resync cadence is kept at
+  1 hour via a tick counter, not by slowing the loop back down.
 - The planned interactive Shell needs no thread we manage — Zephyr's shell
   subsystem spawns its own processing thread per registered `shell`
   instance once the transport (`shell_transport_api`) is implemented.
@@ -88,7 +92,9 @@ direct fit.
 **Decision**: split code into two honestly-labeled categories:
 - **Testable layer** (ztest, runs on `native_sim`/`unit_testing`, no
   hardware): offset math/formatting, screen-stack push/pop, Wi-Fi scan
-  dedup and credential save/forget logic, and (once built) weather/Radio
+  dedup and credential save/forget logic, weather forecast/geocoding JSON
+  parsing (`weather_json.c`, split out of `weather.c` specifically so the
+  test links it without pulling in sockets/TLS), and (once built) Radio
   Browser JSON parsing. Structure: `tests/<module>/` mirroring
   `src/<module>.c`, run via `west twister -p native_sim -T tests/`.
   Coverage tracked via Twister's built-in `--coverage` (gcov) on this

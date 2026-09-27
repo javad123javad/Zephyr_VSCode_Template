@@ -16,6 +16,7 @@
 #include "ui_home.h"
 #include "ui_menu.h"
 #include "ui_nav.h"
+#include "weather.h"
 
 static lv_obj_t *scr_home;
 static lv_obj_t *wifi_status_label;
@@ -71,14 +72,36 @@ void ui_home_screen_create(void)
     lv_obj_align(date_label, LV_ALIGN_CENTER, 0, 84);
     lv_label_set_text(date_label, "--- --");
 
-    /* Placeholder until the weather.c client lands (Phase 2 of the
-     * dashboard plan) - the layout slot exists now so Phase 2 only needs
-     * to change this label's text, not add a new one.
-     */
     weather_label = lv_label_create(scr_home);
     lv_obj_set_style_text_font(weather_label, &lv_font_montserrat_20, LV_PART_MAIN);
     lv_obj_align(weather_label, LV_ALIGN_BOTTOM_MID, 0, -UI_EDGE_MARGIN);
     lv_label_set_text(weather_label, "Weather: --");
+}
+
+static void update_weather_label(void)
+{
+    switch (weather_get_status()) {
+    case WEATHER_STATUS_NO_CITY:
+        lv_label_set_text(weather_label, "Weather: set a city in Settings");
+        break;
+    case WEATHER_STATUS_PENDING:
+        lv_label_set_text(weather_label, "Weather: --");
+        break;
+    case WEATHER_STATUS_ERROR:
+        lv_label_set_text(weather_label, "Weather: unavailable");
+        break;
+    case WEATHER_STATUS_OK: {
+        double temp_c;
+
+        if (weather_get_temperature_c(&temp_c)) {
+            lv_label_set_text_fmt(weather_label, "%s: %.1fC %s", weather_get_city_name(), temp_c,
+                                  weather_get_condition_text());
+        } else {
+            lv_label_set_text(weather_label, "Weather: --");
+        }
+        break;
+    }
+    }
 }
 
 void ui_home_tick(int64_t epoch_s, enum wifi_net_status status)
@@ -98,6 +121,11 @@ void ui_home_tick(int64_t epoch_s, enum wifi_net_status status)
         lv_label_set_text(wifi_status_label, LV_SYMBOL_WIFI " Connected");
         break;
     }
+
+    /* Independent of the clock sync below: a city can be set (and
+     * weather fetched) before time has ever synced.
+     */
+    update_weather_label();
 
     if (epoch_s == 0) {
         return;

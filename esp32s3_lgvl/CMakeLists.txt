@@ -14,6 +14,7 @@ target_sources(app PRIVATE
   src/ui/ui_clock.c
   src/ui/ui_common.c
   src/ui/ui_home.c
+  src/ui/ui_local.c
   src/ui/ui_menu.c
   src/ui/ui_nav.c
   src/ui/ui_network.c
@@ -21,12 +22,21 @@ target_sources(app PRIVATE
   src/ui/ui_placeholder.c
   src/ui/ui_settings.c
   src/ui/ui_touch_cal.c
+  src/weather_json.c
 )
 
 if(CONFIG_ARCH_POSIX)
   # native_sim/QEMU-less host build for fast LVGL UI iteration: no real
-  # Wi-Fi hardware exists there, so use the fake stand-in instead.
-  target_sources(app PRIVATE src/wifi_sim.c)
+  # Wi-Fi/network stack exists there, so use the fake stand-ins instead.
+  target_sources(app PRIVATE src/wifi_sim.c src/weather_sim.c)
 else()
-  target_sources(app PRIVATE src/wifi.c)
+  target_sources(app PRIVATE src/wifi.c src/weather.c)
+
+  set(gen_dir ${ZEPHYR_BINARY_DIR}/include/generated/)
+
+  generate_inc_file_for_target(
+    app
+    src/weather_cert/isrg_root_x1.der
+    ${gen_dir}/isrg_root_x1.der.inc
+  )
 endif()

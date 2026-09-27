@@ -5,6 +5,7 @@
 #include "ui.h"
 #include "ui/ui_clock.h"
 #include "ui/ui_home.h"
+#include "ui/ui_local.h"
 #include "ui/ui_menu.h"
 #include "ui/ui_nav.h"
 #include "ui/ui_network.h"
@@ -29,6 +30,7 @@ void ui_init(void)
     ui_touch_cal_screen_create();
     ui_password_screen_create();
     ui_placeholder_screen_create();
+    ui_local_screen_create();
 
     nav_load_screen(ui_home_screen_get());
 }

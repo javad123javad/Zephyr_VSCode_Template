@@ -4,6 +4,7 @@
 
 #include "ui_clock.h"
 #include "ui_common.h"
+#include "ui_local.h"
 #include "ui_nav.h"
 #include "ui_network.h"
 #include "ui_settings.h"
@@ -34,6 +35,12 @@ static void settings_touch_cal_click_cb(lv_event_t *e)
     nav_push_screen(ui_touch_cal_screen_get());
 }
 
+static void settings_local_click_cb(lv_event_t *e)
+{
+    ARG_UNUSED(e);
+    ui_local_screen_enter();
+}
+
 void ui_settings_screen_create(void)
 {
     scr_settings = lv_obj_create(NULL);
@@ -55,6 +62,10 @@ void ui_settings_screen_create(void)
                                                  settings_touch_cal_click_cb);
 
     lv_obj_set_width(touch_cal_btn, 300);
+
+    lv_obj_t *local_btn = ui_add_menu_button(scr_settings, "Local", settings_local_click_cb);
+
+    lv_obj_set_width(local_btn, 300);
 
     lv_obj_t *back_btn = ui_add_menu_button(scr_settings, "Back", nav_pop_screen);
 

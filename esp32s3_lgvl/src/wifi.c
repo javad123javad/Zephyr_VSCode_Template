@@ -16,11 +16,22 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(wifi_app, LOG_LEVEL_INF);
 
+#include "weather.h"
 #include "wifi.h"
 
 #define NTP_SERVER "pool.ntp.org"
-#define NTP_RESYNC_PERIOD K_HOURS(1)
 #define MAX_SCAN_RESULTS 20
+
+/* network_thread()'s per-connection loop ticks this often while
+ * connected, calling weather_poll() every tick (weather.c decides
+ * internally whether a fetch is actually due) and resyncing NTP every
+ * NTP_TICKS_PER_RESYNC-th tick. A short tick keeps a freshly-submitted
+ * city (see weather_set_city()) from waiting up to an hour to resolve,
+ * without making the NTP resync itself any more frequent than before.
+ */
+#define NETWORK_TICK_PERIOD_S  5U
+#define NTP_RESYNC_PERIOD_S    (60U * 60U)
+#define NTP_TICKS_PER_RESYNC   (NTP_RESYNC_PERIOD_S / NETWORK_TICK_PERIOD_S)
 
 static atomic_t net_status = ATOMIC_INIT(WIFI_STATUS_CONNECTING);
 static atomic_t reconnect_paused = ATOMIC_INIT(0);
@@ -310,18 +321,25 @@ static void network_thread(void *p1, void *p2, void *p3)
 		atomic_set(&net_status, WIFI_STATUS_CONNECTED);
 		LOG_INF("Wi-Fi connected: %s", current_ssid);
 
-		do {
-			struct sntp_time ts;
-			int ret = sntp_simple(NTP_SERVER, 5000, &ts);
+		uint32_t ticks_since_sntp = 0U;
 
-			if (ret == 0) {
-				set_synced_time(ts.seconds);
-				atomic_set(&net_status, WIFI_STATUS_TIME_SYNCED);
-				LOG_INF("Time synced: %llu", ts.seconds);
-			} else {
-				LOG_WRN("SNTP query failed: %d", ret);
+		do {
+			if (ticks_since_sntp == 0U) {
+				struct sntp_time ts;
+				int ret = sntp_simple(NTP_SERVER, 5000, &ts);
+
+				if (ret == 0) {
+					set_synced_time(ts.seconds);
+					atomic_set(&net_status, WIFI_STATUS_TIME_SYNCED);
+					LOG_INF("Time synced: %llu", ts.seconds);
+				} else {
+					LOG_WRN("SNTP query failed: %d", ret);
+				}
 			}
-		} while (k_sem_take(&network_disconnected, NTP_RESYNC_PERIOD) != 0);
+			ticks_since_sntp = (ticks_since_sntp + 1U) % NTP_TICKS_PER_RESYNC;
+
+			weather_poll();
+		} while (k_sem_take(&network_disconnected, K_SECONDS(NETWORK_TICK_PERIOD_S)) != 0);
 
 		LOG_WRN("Wi-Fi disconnected, reconnecting");
 	}
