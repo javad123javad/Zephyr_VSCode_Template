@@ -4,6 +4,7 @@
 
 #include <string.h>
 
+#include "ui_common.h"
 #include "ui_local.h"
 #include "ui_nav.h"
 #include "weather.h"
@@ -32,17 +33,28 @@ void ui_local_screen_enter(void)
     nav_push_screen(scr_local);
 }
 
+static void local_confirm(void)
+{
+    const char *name = lv_textarea_get_text(city_ta);
+    size_t len = strlen(name);
+
+    if (len > 0U) {
+        weather_set_city(name, len);
+    }
+}
+
+static void local_confirm_click_cb(lv_event_t *e)
+{
+    local_confirm();
+    nav_pop_screen(e);
+}
+
 static void local_kb_event_cb(lv_event_t *e)
 {
     lv_event_code_t code = lv_event_get_code(e);
 
     if (code == LV_EVENT_READY) {
-        const char *name = lv_textarea_get_text(city_ta);
-        size_t len = strlen(name);
-
-        if (len > 0U) {
-            weather_set_city(name, len);
-        }
+        local_confirm();
         nav_pop_screen(e);
     } else if (code == LV_EVENT_CANCEL) {
         nav_pop_screen(e);
@@ -67,10 +79,12 @@ void ui_local_screen_create(void)
     lv_obj_set_size(city_ta, 464, 50);
     lv_obj_set_pos(city_ta, 8, 32);
 
+    ui_add_entry_confirm_cancel_row(scr_local, 86, local_confirm_click_cb, nav_pop_screen);
+
     city_kb = lv_keyboard_create(scr_local);
     lv_keyboard_set_textarea(city_kb, city_ta);
-    lv_obj_set_size(city_kb, 480, 220);
-    lv_obj_set_pos(city_kb, 0, 90);
+    lv_obj_set_size(city_kb, 480, 180);
+    lv_obj_set_pos(city_kb, 0, 128);
     lv_obj_add_event_cb(city_kb, local_kb_event_cb, LV_EVENT_READY, NULL);
     lv_obj_add_event_cb(city_kb, local_kb_event_cb, LV_EVENT_CANCEL, NULL);
 }

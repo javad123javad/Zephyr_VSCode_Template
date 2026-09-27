@@ -4,6 +4,7 @@
 
 #include <string.h>
 
+#include "ui_common.h"
 #include "ui_home.h"
 #include "ui_nav.h"
 #include "ui_password.h"
@@ -43,16 +44,27 @@ static void password_eye_click_cb(lv_event_t *e)
     lv_label_set_text(password_eye_label, hidden ? LV_SYMBOL_EYE_CLOSE : LV_SYMBOL_EYE_OPEN);
 }
 
+static void password_confirm(void)
+{
+    const char *password = lv_textarea_get_text(password_ta);
+
+    wifi_connect_and_save(pending_ssid, pending_ssid_len, true, password, strlen(password));
+    nav_load_screen(ui_home_screen_get());
+}
+
+static void password_confirm_click_cb(lv_event_t *e)
+{
+    ARG_UNUSED(e);
+
+    password_confirm();
+}
+
 static void password_kb_event_cb(lv_event_t *e)
 {
     lv_event_code_t code = lv_event_get_code(e);
 
     if (code == LV_EVENT_READY) {
-        const char *password = lv_textarea_get_text(password_ta);
-
-        wifi_connect_and_save(pending_ssid, pending_ssid_len, true, password,
-                              strlen(password));
-        nav_load_screen(ui_home_screen_get());
+        password_confirm();
     } else if (code == LV_EVENT_CANCEL) {
         nav_pop_screen(e);
     }
@@ -88,4 +100,6 @@ void ui_password_screen_create(void)
     lv_obj_set_pos(password_kb, 0, 2);
     lv_obj_add_event_cb(password_kb, password_kb_event_cb, LV_EVENT_READY, NULL);
     lv_obj_add_event_cb(password_kb, password_kb_event_cb, LV_EVENT_CANCEL, NULL);
+
+    ui_add_entry_confirm_cancel_row(scr_password, 250, password_confirm_click_cb, nav_pop_screen);
 }
