@@ -123,5 +123,12 @@ Priority order, given what has already caused real bugs:
    `k_heap`, Zephyr subsystem pools).
 
 **Enforcement**: `scripts/checkpatch.pl` (from the Zephyr tree this app
-lives in) as a before-commit check, even though this app isn't pushed
-upstream.
+lives in), run from that tree's root so it picks up its own
+`.checkpatch.conf` (100-column limit, ignores upstream-only rules like
+`SPDX_LICENSE_TAG`), as a before-commit check even though this app isn't
+pushed upstream. Its indentation rule (tabs, Linux kernel style) is not
+applied here: this app has used 4-space indentation consistently since
+its first commit, predating this decision, and reformatting the whole
+tree to tabs now would be unrelated, unasked-for churn for no functional
+gain. Everything else checkpatch flags is treated as a real defect to
+fix before committing.
