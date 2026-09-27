@@ -102,6 +102,11 @@
 	};
 };
 
+/* ESP32-S3-WROOM-1 N16R8: 8 MB octal PSRAM (module's "R8" suffix). */
+&psram0 {
+	size = <DT_SIZE_M(8)>;
+};
+
 &spi2 {
 	pinctrl-0 = <&spim2_shared>;
 	cs-gpios = <&gpio1 10 GPIO_ACTIVE_LOW>, <&gpio0 7 GPIO_ACTIVE_LOW>;
