@@ -107,6 +107,14 @@
 	size = <DT_SIZE_M(8)>;
 };
 
+/* ESP32-S3-WROOM-1 N16R8: 16 MB flash (module's "N16" suffix), not the
+ * 8 MB this board target defaults to.
+ */
+&flash0 {
+	reg = <0x0 DT_SIZE_M(16)>;
+	ranges = <0x0 0x0 DT_SIZE_M(16)>;
+};
+
 &spi2 {
 	pinctrl-0 = <&spim2_shared>;
 	cs-gpios = <&gpio1 10 GPIO_ACTIVE_LOW>, <&gpio0 7 GPIO_ACTIVE_LOW>;

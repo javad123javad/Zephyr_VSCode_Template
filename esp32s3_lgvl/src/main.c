@@ -16,6 +16,14 @@ LOG_MODULE_REGISTER(internet_clock, LOG_LEVEL_INF);
 #include "ui.h"
 #include "wifi.h"
 
+/* PSRAM init only logs on failure (esp_init_psram(), soc/espressif/
+ * common/esp_psram.c); log success too so it shows up on the console
+ * instead of only being visible via the linker's ext_dram_seg size.
+ */
+#if defined(CONFIG_ESP_SPIRAM)
+#include <esp_psram.h>
+#endif
+
 int main(void)
 {
 	const struct device *display_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_display));
@@ -26,6 +34,14 @@ int main(void)
 		return 0;
 	}
 	LOG_INF("Display device ready");
+
+#if defined(CONFIG_ESP_SPIRAM)
+	if (esp_psram_is_initialized()) {
+		LOG_INF("PSRAM ready: %zu bytes", esp_psram_get_size());
+	} else {
+		LOG_ERR("PSRAM not initialized");
+	}
+#endif
 
 	backlight_init();
 	ui_init();
