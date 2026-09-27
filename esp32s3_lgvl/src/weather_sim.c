@@ -25,11 +25,11 @@ void weather_init(void)
 
 void weather_set_city(const char *name, size_t len)
 {
-	size_t copy_len = MIN(len, sizeof(sim_city) - 1U);
+    size_t copy_len = MIN(len, sizeof(sim_city) - 1U);
 
-	memcpy(sim_city, name, copy_len);
-	sim_city[copy_len] = '\0';
-	sim_status = WEATHER_STATUS_OK;
+    memcpy(sim_city, name, copy_len);
+    sim_city[copy_len] = '\0';
+    sim_status = WEATHER_STATUS_OK;
 }
 
 void weather_poll(void)
@@ -38,21 +38,21 @@ void weather_poll(void)
 
 enum weather_status weather_get_status(void)
 {
-	return sim_status;
+    return sim_status;
 }
 
 bool weather_get_temperature_c(double *out)
 {
-	*out = SIM_TEMPERATURE_C;
-	return sim_status == WEATHER_STATUS_OK;
+    *out = SIM_TEMPERATURE_C;
+    return sim_status == WEATHER_STATUS_OK;
 }
 
 const char *weather_get_condition_text(void)
 {
-	return SIM_CONDITION_TEXT;
+    return SIM_CONDITION_TEXT;
 }
 
 const char *weather_get_city_name(void)
 {
-	return sim_city;
+    return sim_city;
 }

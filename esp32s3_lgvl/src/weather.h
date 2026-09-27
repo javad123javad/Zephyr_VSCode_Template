@@ -11,10 +11,10 @@
 #define WEATHER_CITY_NAME_LEN 32U
 
 enum weather_status {
-	WEATHER_STATUS_NO_CITY,
-	WEATHER_STATUS_PENDING,
-	WEATHER_STATUS_OK,
-	WEATHER_STATUS_ERROR,
+    WEATHER_STATUS_NO_CITY,
+    WEATHER_STATUS_PENDING,
+    WEATHER_STATUS_OK,
+    WEATHER_STATUS_ERROR,
 };
 
 /* Loads any previously-saved city/location from flash; call once at
