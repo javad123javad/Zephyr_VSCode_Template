@@ -32,7 +32,9 @@ static void render_wifi_page(void);
 
 static bool wifi_entry_is_active(const struct wifi_scan_entry *entry)
 {
-    if (wifi_get_status() == WIFI_STATUS_CONNECTING) {
+    enum wifi_net_status status = wifi_get_status();
+
+    if (status == WIFI_STATUS_CONNECTING || status == WIFI_STATUS_DISCONNECTED) {
         return false;
     }
 

@@ -19,6 +19,7 @@ LOG_MODULE_REGISTER(weather, LOG_LEVEL_INF);
 
 #include "weather.h"
 #include "weather_json.h"
+#include "weather_scene.h"
 #include "weather_cert/isrg_root_x1.h"
 
 #define WEATHER_HOST_FORECAST "api.open-meteo.com"
@@ -99,11 +100,7 @@ bool weather_get_temperature_c(double *out)
     return have_temp;
 }
 
-/* WMO weather codes (used by Open-Meteo's "weather_code" field), grouped
- * into short human-readable text. Ranges per
- * https://open-meteo.com/en/docs (WMO Weather interpretation codes).
- */
-const char *weather_get_condition_text(void)
+static int32_t get_cached_weather_code(void)
 {
     int32_t code;
 
@@ -111,23 +108,40 @@ const char *weather_get_condition_text(void)
     code = cached_weather_code;
     k_mutex_unlock(&weather_lock);
 
-    if (code == 0) {
-        return "Clear";
-    } else if (code >= 1 && code <= 3) {
-        return "Partly cloudy";
-    } else if (code == 45 || code == 48) {
-        return "Fog";
-    } else if (code >= 51 && code <= 67) {
-        return "Rain";
-    } else if (code >= 71 && code <= 77) {
-        return "Snow";
-    } else if (code >= 80 && code <= 82) {
-        return "Showers";
-    } else if (code >= 95 && code <= 99) {
-        return "Thunderstorm";
-    }
+    return code;
+}
 
-    return "Unknown";
+/* Short human-readable text for each weather_scene, used by the Home
+ * screen's weather line. Ranges live in weather_scene_from_code()
+ * (weather_scene.c), per https://open-meteo.com/en/docs (WMO Weather
+ * interpretation codes) - this just names each group.
+ */
+const char *weather_get_condition_text(void)
+{
+    switch (weather_scene_from_code(get_cached_weather_code())) {
+    case WEATHER_SCENE_CLEAR:
+        return "Clear";
+    case WEATHER_SCENE_PARTLY_CLOUDY:
+        return "Partly cloudy";
+    case WEATHER_SCENE_FOG:
+        return "Fog";
+    case WEATHER_SCENE_RAIN:
+        return "Rain";
+    case WEATHER_SCENE_SNOW:
+        return "Snow";
+    case WEATHER_SCENE_SHOWERS:
+        return "Showers";
+    case WEATHER_SCENE_THUNDERSTORM:
+        return "Thunderstorm";
+    case WEATHER_SCENE_UNKNOWN:
+    default:
+        return "Unknown";
+    }
+}
+
+enum weather_scene weather_get_scene(void)
+{
+    return weather_scene_from_code(get_cached_weather_code());
 }
 
 const char *weather_get_city_name(void)

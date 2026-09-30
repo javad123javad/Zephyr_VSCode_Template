@@ -19,10 +19,12 @@ target_sources(app PRIVATE
   src/ui/ui_nav.c
   src/ui/ui_network.c
   src/ui/ui_password.c
+  src/ui/ui_palette.c
   src/ui/ui_placeholder.c
   src/ui/ui_settings.c
   src/ui/ui_touch_cal.c
   src/weather_json.c
+  src/weather_scene.c
 )
 
 if(CONFIG_ARCH_POSIX)

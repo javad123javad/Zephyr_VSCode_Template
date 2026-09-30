@@ -4,9 +4,11 @@
 
 #include <string.h>
 
+#include <zephyr/sys/util.h>
 #include <zephyr/ztest.h>
 
 #include "weather_json.h"
+#include "weather_scene.h"
 
 ZTEST_SUITE(weather_json, NULL, NULL, NULL, NULL, NULL);
 
@@ -80,4 +82,45 @@ ZTEST(weather_json, test_geocode_malformed_json)
 
 	zassert_false(weather_parse_geocode_json(buf, strlen(buf), &lat, &lon, city, sizeof(city)),
 		      "malformed JSON must fail closed, not crash or return garbage");
+}
+
+ZTEST_SUITE(weather_scene, NULL, NULL, NULL, NULL, NULL);
+
+ZTEST(weather_scene, test_scene_range_boundaries)
+{
+	static const struct {
+		int32_t code;
+		enum weather_scene expected;
+	} cases[] = {
+		{0, WEATHER_SCENE_CLEAR},
+		{1, WEATHER_SCENE_PARTLY_CLOUDY},
+		{3, WEATHER_SCENE_PARTLY_CLOUDY},
+		{45, WEATHER_SCENE_FOG},
+		{48, WEATHER_SCENE_FOG},
+		{51, WEATHER_SCENE_RAIN},
+		{67, WEATHER_SCENE_RAIN},
+		{71, WEATHER_SCENE_SNOW},
+		{77, WEATHER_SCENE_SNOW},
+		{80, WEATHER_SCENE_SHOWERS},
+		{82, WEATHER_SCENE_SHOWERS},
+		{95, WEATHER_SCENE_THUNDERSTORM},
+		{99, WEATHER_SCENE_THUNDERSTORM},
+	};
+
+	for (size_t i = 0; i < ARRAY_SIZE(cases); i++) {
+		zassert_equal(weather_scene_from_code(cases[i].code), cases[i].expected,
+			      "code %d must map to scene %d", cases[i].code,
+			      cases[i].expected);
+	}
+}
+
+ZTEST(weather_scene, test_scene_unknown_fallback)
+{
+	zassert_equal(weather_scene_from_code(-1), WEATHER_SCENE_UNKNOWN,
+		      "a negative code must fail closed to unknown, not crash or alias a real scene");
+	zassert_equal(weather_scene_from_code(4), WEATHER_SCENE_UNKNOWN,
+		      "a gap between defined WMO ranges must stay unknown, not silently round to "
+		      "a neighboring scene");
+	zassert_equal(weather_scene_from_code(200), WEATHER_SCENE_UNKNOWN,
+		      "a code past every defined range must fail closed to unknown");
 }

@@ -286,7 +286,12 @@ static void l4_event_handler(struct net_mgmt_event_callback *cb, uint64_t event,
 		k_sem_give(&network_connected);
 		break;
 	case NET_EVENT_L4_DISCONNECTED:
-		atomic_set(&net_status, WIFI_STATUS_CONNECTING);
+		/* Distinct from WIFI_STATUS_CONNECTING: this is a real lost
+		 * connection, not "never connected yet" - the network_thread
+		 * loop sets CONNECTING again once it actually starts the next
+		 * attempt, below.
+		 */
+		atomic_set(&net_status, WIFI_STATUS_DISCONNECTED);
 		k_sem_give(&network_disconnected);
 		break;
 	default:
@@ -320,6 +325,7 @@ static void network_thread(void *p1, void *p2, void *p3)
 			k_sleep(K_MSEC(200));
 		}
 
+		atomic_set(&net_status, WIFI_STATUS_CONNECTING);
 		net_mgmt(NET_REQUEST_WIFI_CONNECT_STORED, iface, NULL, 0);
 
 		/* Bounded, not K_FOREVER: a connect attempt that fails before
@@ -362,4 +368,13 @@ static void network_thread(void *p1, void *p2, void *p3)
 	}
 }
 
-K_THREAD_DEFINE(network_tid, 4096, network_thread, NULL, NULL, NULL, 5, 0, 0);
+/* 4096 was sized for Wi-Fi management + SNTP only. weather.c's HTTPS
+ * client now also runs on this thread, and TLS/X.509 verification -
+ * particularly the RSA-4096 signature check against the ISRG Root X1
+ * -> "ISRG Root YR" link in Let's Encrypt's chain - needs real stack
+ * depth. With CONFIG_STACK_SENTINEL off (no overflow detection), an
+ * overflow here silently corrupts adjacent memory instead of
+ * crashing, matching a real, otherwise inexplicable TLS failure seen
+ * on hardware but not reproducible in isolation off-device.
+ */
+K_THREAD_DEFINE(network_tid, 8192, network_thread, NULL, NULL, NULL, 5, 0, 0);

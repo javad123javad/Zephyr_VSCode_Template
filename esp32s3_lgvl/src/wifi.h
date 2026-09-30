@@ -13,6 +13,7 @@ enum wifi_net_status {
 	WIFI_STATUS_CONNECTING,
 	WIFI_STATUS_CONNECTED,
 	WIFI_STATUS_TIME_SYNCED,
+	WIFI_STATUS_DISCONNECTED,
 };
 
 struct wifi_scan_entry {

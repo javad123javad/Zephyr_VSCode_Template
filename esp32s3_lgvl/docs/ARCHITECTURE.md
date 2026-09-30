@@ -138,3 +138,41 @@ its first commit, predating this decision, and reformatting the whole
 tree to tabs now would be unrelated, unasked-for churn for no functional
 gain. Everything else checkpatch flags is treated as a real defect to
 fix before committing.
+
+## AD-7: Visual design - hand-drawn static scenes, no image assets
+
+**Decision**: the Home screen's weather-condition background (sunny/cloudy/
+rain/snow/fog/storm) is composed from layered LVGL draw primitives
+(`ui_home.c`: gradient sky via `lv_obj_set_style_bg_grad_*`, circles for
+sun/cloud/snow, a polyline for lightning) rather than bitmap illustrations.
+Only the current scene's objects exist at a time (`ui_home.c`'s
+`show_scene()`/`build_scene()`): the previous scene is deleted and the new
+one built when `weather_get_scene()` changes, which only happens on
+`weather_poll()`'s cadence (minutes), not per frame. All 8 scenes were
+originally pre-built and hidden up front instead; that fit the 64 KB
+`LV_Z_MEM_POOL_SIZE` on real (32-bit) hardware but overran it on
+`native_sim/native/64`, whose 64-bit LVGL object structs are larger for
+the same object count - see the comment above `show_scene()` in
+`ui_home.c`. A shared accent/warning color pair and per-scene sky
+gradient live in `ui/ui_palette.c`, meant to be reused (not reinvented per
+screen) as later screens are revisited.
+
+**Why**: this board has no GPU and drives an SPI panel with `dram0_0_seg`
+already reported at 82-91% used; a continuously-animated background (the
+pattern phone-class weather apps use) would force a full-screen redraw
+every frame for no functional reason on hardware this constrained. A
+*static* scene avoids that entirely - the per-second clock tick already
+only repaints its own label's dirty region, same as before this change.
+Drawing primitives instead of bitmaps keeps the scenes reviewable as plain
+diffable code, avoids an image-conversion asset pipeline and its licensing
+question, and stays cheap in both flash and the LVGL object pool.
+
+**Alternative considered**: real bitmap/illustration assets converted via
+LVGL's image tool. Would look more "designed", but needs an actual art
+source (this project has none) and a real per-image flash/RAM cost;
+revisit only if illustrated assets are supplied later.
+
+The WMO `weather_code` -> `weather_scene` mapping lives in its own
+`weather_scene.c`/`.h`, split out of `weather.c` for the same reason
+`weather_json.c` was (AD-5): a pure function with no sockets/TLS
+dependency, so `tests/weather` can link and assert it directly.

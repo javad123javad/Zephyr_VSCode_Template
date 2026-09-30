@@ -8,6 +8,8 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include "weather_scene.h"
+
 #define WEATHER_CITY_NAME_LEN 32U
 
 enum weather_status {
@@ -45,6 +47,11 @@ bool weather_get_temperature_c(double *out);
  * none is available yet.
  */
 const char *weather_get_condition_text(void);
+
+/* Which illustrated sky scene (see ui_home.c) matches the last fetched
+ * condition. WEATHER_SCENE_UNKNOWN before any forecast has been fetched.
+ */
+enum weather_scene weather_get_scene(void);
 
 /* Resolved city name (may differ slightly from what was typed, e.g. the
  * geocoding API's own capitalization), or "" if none is set.

@@ -10,5 +10,6 @@ target_include_directories(app PRIVATE ${APP_SRC_DIR})
 
 target_sources(app PRIVATE
   ${APP_SRC_DIR}/weather_json.c
+  ${APP_SRC_DIR}/weather_scene.c
   src/main.c
 )

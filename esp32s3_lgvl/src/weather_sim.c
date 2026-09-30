@@ -9,15 +9,42 @@
 
 #include <string.h>
 
+#include <zephyr/kernel.h>
 #include <zephyr/sys/util.h>
 
 #include "weather.h"
 
 #define SIM_TEMPERATURE_C 21.5
-#define SIM_CONDITION_TEXT "Partly cloudy"
+
+/* Cycles through one representative WMO code per scene so every Home
+ * screen illustration can be seen on native_sim without a real forecast.
+ */
+#define SIM_SCENE_PERIOD_MS 8000
+
+struct sim_condition {
+    int32_t weather_code;
+    const char *text;
+};
+
+static const struct sim_condition sim_conditions[] = {
+    {.weather_code = 0, .text = "Clear"},
+    {.weather_code = 2, .text = "Partly cloudy"},
+    {.weather_code = 45, .text = "Fog"},
+    {.weather_code = 61, .text = "Rain"},
+    {.weather_code = 73, .text = "Snow"},
+    {.weather_code = 80, .text = "Showers"},
+    {.weather_code = 96, .text = "Thunderstorm"},
+};
 
 static enum weather_status sim_status = WEATHER_STATUS_NO_CITY;
 static char sim_city[WEATHER_CITY_NAME_LEN];
+
+static const struct sim_condition *sim_current_condition(void)
+{
+    size_t index = (k_uptime_get() / SIM_SCENE_PERIOD_MS) % ARRAY_SIZE(sim_conditions);
+
+    return &sim_conditions[index];
+}
 
 void weather_init(void)
 {
@@ -49,7 +76,12 @@ bool weather_get_temperature_c(double *out)
 
 const char *weather_get_condition_text(void)
 {
-    return SIM_CONDITION_TEXT;
+    return sim_current_condition()->text;
+}
+
+enum weather_scene weather_get_scene(void)
+{
+    return weather_scene_from_code(sim_current_condition()->weather_code);
 }
 
 const char *weather_get_city_name(void)
