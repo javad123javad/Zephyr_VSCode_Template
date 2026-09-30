@@ -79,11 +79,15 @@ so every scene can be seen without a real forecast.
 
 ### Regenerating Home's weather scene art
 
-Home's illustrated sky backgrounds (`src/ui/weather_scenes/scene_*.rgb565`)
-are pre-rendered, not drawn at runtime (see AD-7 in `docs/ARCHITECTURE.md`).
-To change them, edit `tools/gen_weather_scenes.py` and re-run it, then
-rebuild normally - the script itself needs Pillow (`pip install pillow`),
-but a plain `west build` never does, since its *output* is committed:
+Home's per-condition backgrounds (`src/ui/weather_scenes/scene_*.rgb565`)
+are real photographs, not drawn or illustrated (see AD-7 in
+`docs/ARCHITECTURE.md`, and `src/ui/weather_scenes/CREDITS.md` for
+source/author/license per scene). To change one, edit the relevant entry
+in `tools/gen_weather_scenes.py`'s `SCENES` table (a new source URL, or a
+different scene) and re-run it, then update CREDITS.md to match and
+rebuild normally. The script needs Pillow (`pip install pillow`) and
+network access to Wikimedia Commons; a plain `west build` needs neither,
+since its *output* is committed:
 
 ```sh
 python3 tools/gen_weather_scenes.py
