@@ -253,6 +253,20 @@ static bool https_get(const char *host, const char *url, char *body_buf, size_t 
 
     if (ret < 0) {
         LOG_ERR("connect() to %s failed: %d", host, -errno);
+
+        /* A TLS handshake failure surfaces here as a generic errno;
+         * this is mbedTLS's actual X509 verify-flags bitmask (0 =
+         * verified OK), which says *why* - see MBEDTLS_X509_BADCERT_*
+         * in mbedtls/x509.h - not just that it failed.
+         */
+        int verify_result = 0;
+        socklen_t verify_result_len = sizeof(verify_result);
+
+        if (zsock_getsockopt(sock, SOL_TLS, TLS_CERT_VERIFY_RESULT, &verify_result,
+                       &verify_result_len) == 0) {
+            LOG_ERR("TLS cert verify result: 0x%x", verify_result);
+        }
+
         zsock_close(sock);
         return false;
     }
