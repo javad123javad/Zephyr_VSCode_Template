@@ -256,9 +256,23 @@ void ui_home_screen_create(void)
 {
     scr_home = lv_obj_create(NULL);
 
-    wifi_status_label = lv_label_create(scr_home);
+    /* A plain top-anchored label sits with its glyph top at the margin,
+     * while the settings button below centers its icon inside a
+     * UI_ICON_BUTTON_SIZE box - putting the two icons at different
+     * heights. Mirror that box here (same size/margin, just not
+     * clickable) so both icons center on the same line.
+     */
+    lv_obj_t *wifi_box = lv_obj_create(scr_home);
+
+    scene_obj_defaults(wifi_box);
+    lv_obj_set_style_bg_opa(wifi_box, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(wifi_box, 0, LV_PART_MAIN);
+    lv_obj_set_size(wifi_box, UI_ICON_BUTTON_SIZE, UI_ICON_BUTTON_SIZE);
+    lv_obj_align(wifi_box, LV_ALIGN_TOP_LEFT, UI_EDGE_MARGIN, UI_EDGE_MARGIN);
+
+    wifi_status_label = lv_label_create(wifi_box);
     lv_obj_set_style_text_font(wifi_status_label, &lv_font_montserrat_24, LV_PART_MAIN);
-    lv_obj_align(wifi_status_label, LV_ALIGN_TOP_LEFT, UI_EDGE_MARGIN, UI_EDGE_MARGIN);
+    lv_obj_center(wifi_status_label);
     lv_label_set_text(wifi_status_label, LV_SYMBOL_WARNING);
 
     lv_obj_t *settings_btn = lv_button_create(scr_home);
