@@ -301,29 +301,29 @@ void ui_home_screen_create(void)
     show_scene(weather_get_scene());
 }
 
-static void update_weather_label(void)
+static void update_weather_label(enum weather_scene scene)
 {
     switch (weather_get_status()) {
     case WEATHER_STATUS_NO_CITY:
         lv_obj_add_flag(weather_label, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_set_style_text_color(weather_label, ui_accent_color(), LV_PART_MAIN);
+        lv_obj_set_style_text_color(weather_label, ui_accent_color(scene), LV_PART_MAIN);
         lv_label_set_text(weather_label, LV_SYMBOL_RIGHT " Tap to set your city");
         break;
     case WEATHER_STATUS_PENDING:
         lv_obj_remove_flag(weather_label, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_set_style_text_color(weather_label, lv_color_white(), LV_PART_MAIN);
+        lv_obj_set_style_text_color(weather_label, ui_scene_text_color(scene), LV_PART_MAIN);
         lv_label_set_text(weather_label, "Weather: --");
         break;
     case WEATHER_STATUS_ERROR:
         lv_obj_remove_flag(weather_label, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_set_style_text_color(weather_label, ui_warning_color(), LV_PART_MAIN);
+        lv_obj_set_style_text_color(weather_label, ui_warning_color(scene), LV_PART_MAIN);
         lv_label_set_text(weather_label, "Weather: unavailable");
         break;
     case WEATHER_STATUS_OK: {
         double temp_c;
 
         lv_obj_remove_flag(weather_label, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_set_style_text_color(weather_label, lv_color_white(), LV_PART_MAIN);
+        lv_obj_set_style_text_color(weather_label, ui_scene_text_color(scene), LV_PART_MAIN);
         if (weather_get_temperature_c(&temp_c)) {
             lv_label_set_text_fmt(weather_label, "%s: %.1fC %s", weather_get_city_name(), temp_c,
                                   weather_get_condition_text());
@@ -333,8 +333,6 @@ static void update_weather_label(void)
         break;
     }
     }
-
-    show_scene(weather_get_scene());
 }
 
 void ui_home_tick(int64_t epoch_s, enum wifi_net_status status)
@@ -342,30 +340,38 @@ void ui_home_tick(int64_t epoch_s, enum wifi_net_status status)
     static const char *const weekdays[] = {
         "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
     };
+    enum weather_scene scene = weather_get_scene();
+    lv_color_t text_color = ui_scene_text_color(scene);
+
+    show_scene(scene);
 
     switch (status) {
     case WIFI_STATUS_CONNECTING:
-        lv_obj_set_style_text_color(wifi_status_label, lv_color_white(), LV_PART_MAIN);
+        lv_obj_set_style_text_color(wifi_status_label, text_color, LV_PART_MAIN);
         lv_label_set_text(wifi_status_label, LV_SYMBOL_WARNING);
         break;
     case WIFI_STATUS_CONNECTED:
-        lv_obj_set_style_text_color(wifi_status_label, lv_color_white(), LV_PART_MAIN);
+        lv_obj_set_style_text_color(wifi_status_label, text_color, LV_PART_MAIN);
         lv_label_set_text(wifi_status_label, LV_SYMBOL_REFRESH);
         break;
     case WIFI_STATUS_TIME_SYNCED:
-        lv_obj_set_style_text_color(wifi_status_label, lv_color_white(), LV_PART_MAIN);
+        lv_obj_set_style_text_color(wifi_status_label, text_color, LV_PART_MAIN);
         lv_label_set_text(wifi_status_label, LV_SYMBOL_WIFI);
         break;
     case WIFI_STATUS_DISCONNECTED:
-        lv_obj_set_style_text_color(wifi_status_label, ui_warning_color(), LV_PART_MAIN);
+        lv_obj_set_style_text_color(wifi_status_label, ui_warning_color(scene), LV_PART_MAIN);
         lv_label_set_text(wifi_status_label, LV_SYMBOL_CLOSE);
         break;
     }
 
+    lv_obj_set_style_text_color(time_label, text_color, LV_PART_MAIN);
+    lv_obj_set_style_text_color(weekday_label, text_color, LV_PART_MAIN);
+    lv_obj_set_style_text_color(date_label, text_color, LV_PART_MAIN);
+
     /* Independent of the clock sync below: a city can be set (and
      * weather fetched) before time has ever synced.
      */
-    update_weather_label();
+    update_weather_label(scene);
 
     if (epoch_s == 0) {
         return;
