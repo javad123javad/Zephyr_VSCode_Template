@@ -12,6 +12,7 @@
 #include <zephyr/net/wifi_credentials.h>
 #include <zephyr/net/conn_mgr_monitor.h>
 #include <zephyr/net/sntp.h>
+#include <zephyr/sys/clock.h>
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(wifi_app, LOG_LEVEL_INF);
@@ -50,6 +51,22 @@ static bool scan_done = true;
 
 static void set_synced_time(uint64_t epoch_s)
 {
+	/* This app's own clock display only reads base_epoch_s/
+	 * base_uptime_ms below, but mbedTLS's certificate date checks
+	 * (weather.c's HTTPS client) read the kernel's real-time clock
+	 * directly - it stays at its power-on default (epoch 0) unless we
+	 * set it here, which fails every certificate as "not yet valid".
+	 */
+	struct timespec tp = {
+		.tv_sec = (time_t)epoch_s,
+		.tv_nsec = 0,
+	};
+	int ret = sys_clock_settime(SYS_CLOCK_REALTIME, &tp);
+
+	if (ret != 0) {
+		LOG_WRN("Could not set system clock: %d", ret);
+	}
+
 	k_mutex_lock(&time_lock, K_FOREVER);
 	base_epoch_s = (int64_t)epoch_s;
 	base_uptime_ms = k_uptime_get();
