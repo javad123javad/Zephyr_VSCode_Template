@@ -23,9 +23,24 @@ target_sources(app PRIVATE
   src/ui/ui_placeholder.c
   src/ui/ui_settings.c
   src/ui/ui_touch_cal.c
+  src/ui/weather_scenes.c
   src/weather_json.c
   src/weather_scene.c
 )
+
+set(gen_dir ${ZEPHYR_BINARY_DIR}/include/generated/)
+
+# Home's illustrated weather backgrounds: raw RGB565 pixel data (see
+# tools/gen_weather_scenes.py), converted to a C byte array per scene at
+# build time - needed on every target (native_sim included, for UI
+# iteration), unlike the Wi-Fi-connected-only assets below.
+foreach(scene clear partly_cloudy fog rain snow showers thunderstorm unknown)
+  generate_inc_file_for_target(
+    app
+    src/ui/weather_scenes/scene_${scene}.rgb565
+    ${gen_dir}/scene_${scene}.rgb565.inc
+  )
+endforeach()
 
 if(CONFIG_ARCH_POSIX)
   # native_sim/QEMU-less host build for fast LVGL UI iteration: no real
@@ -33,8 +48,6 @@ if(CONFIG_ARCH_POSIX)
   target_sources(app PRIVATE src/wifi_sim.c src/weather_sim.c)
 else()
   target_sources(app PRIVATE src/wifi.c src/weather.c)
-
-  set(gen_dir ${ZEPHYR_BINARY_DIR}/include/generated/)
 
   generate_inc_file_for_target(
     app

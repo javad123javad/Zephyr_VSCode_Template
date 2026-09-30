@@ -139,38 +139,51 @@ tree to tabs now would be unrelated, unasked-for churn for no functional
 gain. Everything else checkpatch flags is treated as a real defect to
 fix before committing.
 
-## AD-7: Visual design - hand-drawn static scenes, no image assets
+## AD-7: Visual design - static, pre-rendered scenes, no runtime drawing
 
 **Decision**: the Home screen's weather-condition background (sunny/cloudy/
-rain/snow/fog/storm) is composed from layered LVGL draw primitives
-(`ui_home.c`: gradient sky via `lv_obj_set_style_bg_grad_*`, circles for
-sun/cloud/snow, a polyline for lightning) rather than bitmap illustrations.
-Only the current scene's objects exist at a time (`ui_home.c`'s
-`show_scene()`/`build_scene()`): the previous scene is deleted and the new
-one built when `weather_get_scene()` changes, which only happens on
-`weather_poll()`'s cadence (minutes), not per frame. All 8 scenes were
-originally pre-built and hidden up front instead; that fit the 64 KB
-`LV_Z_MEM_POOL_SIZE` on real (32-bit) hardware but overran it on
-`native_sim/native/64`, whose 64-bit LVGL object structs are larger for
-the same object count - see the comment above `show_scene()` in
-`ui_home.c`. A shared accent/warning color pair and per-scene sky
-gradient live in `ui/ui_palette.c`, meant to be reused (not reinvented per
-screen) as later screens are revisited.
+rain/snow/fog/storm) is one pre-rendered RGB565 bitmap per `weather_scene`,
+generated offline by `tools/gen_weather_scenes.py` (Pillow) and compiled in
+as a `const lv_image_dsc_t` (`src/ui/weather_scenes.c`/`.h` +
+`src/ui/weather_scenes/scene_*.rgb565`, converted to C byte arrays at
+build time by `generate_inc_file_for_target()`, the same mechanism already
+used for the TLS CA certificate). `ui_home.c` holds exactly one
+`lv_image` object (`scene_img`); `show_scene()` just calls
+`lv_image_set_src()` on it when `weather_get_scene()` changes, which only
+happens on `weather_poll()`'s cadence (minutes), not per frame. The script
+is run manually to edit the art (`python3 tools/gen_weather_scenes.py`,
+needs Pillow); its *output* is committed, so a normal `west build` never
+needs Python beyond what west itself already requires. A shared accent/
+warning/text color set keyed by scene brightness lives in
+`ui/ui_palette.c` (`ui_scene_is_light()` and friends), meant to be reused
+as later screens are revisited; the actual scene pixel colors now live in
+the generator script, which must be kept classified consistently with it.
 
 **Why**: this board has no GPU and drives an SPI panel with `dram0_0_seg`
-already reported at 82-91% used; a continuously-animated background (the
-pattern phone-class weather apps use) would force a full-screen redraw
-every frame for no functional reason on hardware this constrained. A
-*static* scene avoids that entirely - the per-second clock tick already
-only repaints its own label's dirty region, same as before this change.
-Drawing primitives instead of bitmaps keeps the scenes reviewable as plain
-diffable code, avoids an image-conversion asset pipeline and its licensing
-question, and stays cheap in both flash and the LVGL object pool.
+already reported at 82-91% used, while flash sits under 7% of 16 MB. The
+scenes were originally built from live LVGL draw primitives (gradients,
+layered circles, a polyline bolt) instead - reviewable as plain diffable
+code, no asset pipeline - but that spent the scarce resource to save the
+abundant one, and caused two real crashes: a shadow-blur buffer alone
+exceeding the entire 64 KB `LV_Z_MEM_POOL_SIZE`, and (after fixing that)
+the same pool overrunning on `native_sim/native/64` once ~100 decoration
+objects across 8 pre-built scenes existed at once (LVGL's per-object
+structs are larger on a 64-bit host build, so the same object count didn't
+fit there even though it fit on the real 32-bit target). Both are detailed
+in the commits that fixed them. A single `lv_image` object per scene
+removes that whole class of bug regardless of how many shapes the art
+has, at a real but affordable cost of ~300 KB flash per scene (~2.4 MB for
+all 8, confirmed against a real build: FLASH usage moved from 6.95% to
+21.60% of 16 MB, `dram0_0_seg` unchanged). No compression: still trivial
+against the 16 MB budget, and avoids paying RLE/LZ4 decode time on the
+ESP32 for a background that's static anyway.
 
-**Alternative considered**: real bitmap/illustration assets converted via
-LVGL's image tool. Would look more "designed", but needs an actual art
-source (this project has none) and a real per-image flash/RAM cost;
-revisit only if illustrated assets are supplied later.
+**Alternative considered**: keep the hand-drawn LVGL primitives (the
+original version of this decision). Rejected after the crashes above -
+lower flash cost, but the wrong resource to optimize for on this specific
+board, and the object-count-scales-with-scene-count failure mode was
+already generalizing to two chip/build-width-dependent bugs in one
+feature.
 
 The WMO `weather_code` -> `weather_scene` mapping lives in its own
 `weather_scene.c`/`.h`, split out of `weather.c` for the same reason

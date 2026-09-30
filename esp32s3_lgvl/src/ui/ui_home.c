@@ -11,8 +11,6 @@
 #include <stdio.h>
 #include <time.h>
 
-#include <zephyr/sys/util.h>
-
 #include "ui_clock.h"
 #include "ui_common.h"
 #include "ui_home.h"
@@ -21,10 +19,11 @@
 #include "ui_nav.h"
 #include "ui_palette.h"
 #include "weather.h"
+#include "weather_scenes.h"
 
 static lv_obj_t *scr_home;
-static lv_obj_t *scene_layer;
-static bool scene_built;
+static lv_obj_t *scene_img;
+static bool scene_shown;
 static enum weather_scene displayed_scene;
 
 static lv_obj_t *wifi_status_label;
@@ -52,209 +51,33 @@ static void home_weather_cta_click_cb(lv_event_t *e)
 
 /* --- Illustrated sky scenes ------------------------------------------- */
 
-static void scene_obj_defaults(lv_obj_t *obj)
-{
-    lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_remove_flag(obj, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_border_width(obj, 0, LV_PART_MAIN);
-}
-
-/* A filled circle (or, for a wide/short size, a capsule): the one shape
- * every scene decoration below is built from.
- */
-static lv_obj_t *add_blob(lv_obj_t *parent, int32_t w, int32_t h, int32_t x, int32_t y,
-                          lv_color_t color, lv_opa_t opa)
-{
-    lv_obj_t *obj = lv_obj_create(parent);
-
-    scene_obj_defaults(obj);
-    lv_obj_set_style_radius(obj, LV_RADIUS_CIRCLE, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(obj, color, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(obj, opa, LV_PART_MAIN);
-    lv_obj_set_size(obj, w, h);
-    lv_obj_set_pos(obj, x, y);
-
-    return obj;
-}
-
-/* The glow is two larger, more transparent flat circles behind the solid
- * disc - not lv_obj's shadow styling, which asks LVGL's software renderer
- * to blur a temporary buffer sized off the shadow's width/spread
- * (lv_draw_sw_box_shadow.c). At this size that blur buffer alone (~45 KB
- * for a 90px sun) exceeds this app's entire 64 KB LVGL memory pool
- * (CONFIG_LV_Z_MEM_POOL_SIZE), and the failed allocation isn't handled
- * safely - it crashed the instant a sun scene was actually drawn, on both
- * native_sim and real hardware.
- */
-static void add_sun(lv_obj_t *parent, int32_t cx, int32_t cy, int32_t d)
-{
-    lv_color_t gold = lv_color_hex(0xFFD54F);
-
-    add_blob(parent, d * 2, d * 2, cx - d, cy - d, gold, LV_OPA_20);
-    add_blob(parent, (d * 3) / 2, (d * 3) / 2, cx - d * 3 / 4, cy - d * 3 / 4, gold, LV_OPA_30);
-    add_blob(parent, d, d, cx - d / 2, cy - d / 2, gold, LV_OPA_COVER);
-}
-
-/* A handful of overlapping circles plus a wide capsule "base" to blend
- * their undersides into one silhouette - a cloud, drawn without any image
- * asset. (x, y) is the cloud's top-left; w is its overall width.
- */
-static void add_cloud(lv_obj_t *parent, int32_t x, int32_t y, int32_t w, lv_color_t color,
-                      lv_opa_t opa)
-{
-    int32_t h = w / 2;
-
-    add_blob(parent, (h * 3) / 2, (h * 3) / 2, x + h / 2, y, color, opa);
-    add_blob(parent, (h * 5) / 4, (h * 5) / 4, x + h * 3 / 2, y + h / 4, color, opa);
-    add_blob(parent, h, h, x, y + h / 2, color, opa);
-    add_blob(parent, h, h, x + w - h, y + h / 2, color, opa);
-    add_blob(parent, w, h, x, y + h / 2, color, opa);
-}
-
-static void add_rain(lv_obj_t *parent, int32_t x, int32_t y, lv_color_t color)
-{
-    add_blob(parent, 4, 22, x, y, color, LV_OPA_70);
-}
-
-static void add_snow_dot(lv_obj_t *parent, int32_t x, int32_t y, int32_t d)
-{
-    add_blob(parent, d, d, x, y, lv_color_hex(0xFFFFFF), LV_OPA_90);
-}
-
-static void add_lightning(lv_obj_t *parent, int32_t x, int32_t y)
-{
-    static const lv_point_precise_t bolt_points[] = {
-        {0, 0}, {14, 0}, {4, 20}, {16, 20}, {2, 46},
-    };
-    lv_obj_t *line = lv_line_create(parent);
-
-    lv_obj_remove_flag(line, LV_OBJ_FLAG_CLICKABLE);
-    lv_line_set_points(line, bolt_points, ARRAY_SIZE(bolt_points));
-    lv_obj_set_style_line_width(line, 4, LV_PART_MAIN);
-    lv_obj_set_style_line_rounded(line, true, LV_PART_MAIN);
-    lv_obj_set_style_line_color(line, lv_color_hex(0xFFF176), LV_PART_MAIN);
-    lv_obj_set_pos(line, x, y);
-}
-
-static void populate_scene(lv_obj_t *layer, enum weather_scene scene)
-{
-    lv_color_t cloud_light = lv_color_hex(0xFFFFFF);
-    lv_color_t cloud_grey = lv_color_hex(0xCFD8DC);
-    lv_color_t cloud_dark = lv_color_hex(0x78909C);
-    lv_color_t cloud_storm = lv_color_hex(0x37474F);
-    lv_color_t rain_color = lv_color_hex(0xB3E5FC);
-    static const int32_t rain_x[] = {90, 140, 190, 240, 290, 340, 390};
-    static const int32_t snow_x[] = {70, 110, 150, 190, 230, 270, 310, 350, 390};
-
-    switch (scene) {
-    case WEATHER_SCENE_CLEAR:
-        add_sun(layer, 110, 70, 90);
-        break;
-    case WEATHER_SCENE_PARTLY_CLOUDY:
-        add_sun(layer, 90, 60, 70);
-        add_cloud(layer, 130, 60, 170, cloud_light, LV_OPA_90);
-        add_cloud(layer, 30, 120, 120, cloud_light, LV_OPA_70);
-        break;
-    case WEATHER_SCENE_FOG:
-        add_cloud(layer, -20, 50, 220, cloud_grey, LV_OPA_50);
-        add_cloud(layer, 190, 90, 240, cloud_grey, LV_OPA_40);
-        add_cloud(layer, 50, 150, 280, cloud_grey, LV_OPA_50);
-        break;
-    case WEATHER_SCENE_RAIN:
-        add_cloud(layer, 50, 30, 240, cloud_dark, LV_OPA_90);
-        add_cloud(layer, 250, 60, 190, cloud_grey, LV_OPA_80);
-        for (size_t i = 0U; i < ARRAY_SIZE(rain_x); i++) {
-            add_rain(layer, rain_x[i], 150 + (int32_t)(i % 3) * 12, rain_color);
-        }
-        break;
-    case WEATHER_SCENE_SNOW:
-        add_cloud(layer, 70, 30, 210, cloud_grey, LV_OPA_90);
-        add_cloud(layer, 260, 50, 190, cloud_light, LV_OPA_80);
-        for (size_t i = 0U; i < ARRAY_SIZE(snow_x); i++) {
-            add_snow_dot(layer, snow_x[i], 150 + (int32_t)(i % 4) * 20, 6 + (int32_t)(i % 3) * 2);
-        }
-        break;
-    case WEATHER_SCENE_SHOWERS:
-        add_sun(layer, 390, 55, 60);
-        add_cloud(layer, 70, 40, 230, cloud_grey, LV_OPA_90);
-        for (size_t i = 0U; i < 5U; i++) {
-            add_rain(layer, rain_x[i] - 10, 150 + (int32_t)(i % 2) * 14, rain_color);
-        }
-        break;
-    case WEATHER_SCENE_THUNDERSTORM:
-        add_cloud(layer, 50, 20, 250, cloud_storm, LV_OPA_COVER);
-        add_cloud(layer, 250, 40, 210, lv_color_hex(0x455A64), LV_OPA_COVER);
-        add_lightning(layer, 200, 110);
-        add_lightning(layer, 300, 120);
-        for (size_t i = 0U; i < 4U; i++) {
-            add_rain(layer, rain_x[i] * 3 / 2 - 40, 160, rain_color);
-        }
-        break;
-    case WEATHER_SCENE_UNKNOWN:
-    default:
-        break;
-    }
-}
-
-static lv_obj_t *build_scene(lv_obj_t *parent, enum weather_scene scene)
-{
-    lv_obj_t *layer = lv_obj_create(parent);
-    lv_color_t top;
-    lv_color_t bottom;
-
-    ui_scene_sky_colors(scene, &top, &bottom);
-
-    scene_obj_defaults(layer);
-    lv_obj_set_style_radius(layer, 0, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(layer, 0, LV_PART_MAIN);
-    lv_obj_set_size(layer, UI_SCREEN_WIDTH, UI_SCREEN_HEIGHT);
-    lv_obj_set_pos(layer, 0, 0);
-    lv_obj_set_style_bg_color(layer, top, LV_PART_MAIN);
-    lv_obj_set_style_bg_grad_color(layer, bottom, LV_PART_MAIN);
-    lv_obj_set_style_bg_grad_dir(layer, LV_GRAD_DIR_VER, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(layer, LV_OPA_COVER, LV_PART_MAIN);
-
-    /* Newly created, so it lands on top of scr_home's other children
-     * (the scrim cards, settings button, ...) in z-order; put it back
-     * behind them.
-     */
-    lv_obj_move_to_index(layer, 0);
-
-    populate_scene(layer, scene);
-
-    return layer;
-}
-
-/* Only one scene's worth of decoration objects (roughly a dozen circles/
- * lines) ever exists at a time, rebuilt on the rare occasions
- * weather_get_scene() actually changes - not all 8 scenes pre-built and
- * hidden. Pre-building all 8 up front (~100 objects total) fit this app's
- * 64 KB LV_Z_MEM_POOL_SIZE on the real (32-bit) hardware target, but not
- * on native_sim/native/64: LVGL's per-object structs carry several
- * pointers, so the same object count is noticeably larger on a 64-bit
- * host build, and it overran the pool - the same nominal byte budget
- * holds fewer, larger objects there. Building one scene at a time keeps
- * the peak object count (and so this bug) from scaling with the number
- * of scenes at all.
+/* Each weather_scene's background is a single pre-rendered bitmap (see
+ * weather_scenes.h and tools/gen_weather_scenes.py) instead of shapes
+ * built from live LVGL objects: one lv_image object regardless of how
+ * many circles/lines the art has, swapped by lv_image_set_src() when the
+ * condition changes rather than rebuilt. The original hand-drawn version
+ * cost a dozen-plus lv_obj_t per scene and twice caused this app's 64 KB
+ * LV_Z_MEM_POOL_SIZE to run out (see AD-7 in docs/ARCHITECTURE.md); this
+ * spends flash - barely used on this board - instead of the LVGL heap.
  */
 static void show_scene(enum weather_scene scene)
 {
-    if (scene_built && scene == displayed_scene) {
+    if (scene_shown && scene == displayed_scene) {
         return;
     }
 
-    if (scene_built) {
-        lv_obj_delete(scene_layer);
-    }
-
-    scene_layer = build_scene(scr_home, scene);
+    lv_image_set_src(scene_img, weather_scene_image(scene));
     displayed_scene = scene;
-    scene_built = true;
+    scene_shown = true;
 }
 
 void ui_home_screen_create(void)
 {
     scr_home = lv_obj_create(NULL);
+
+    scene_img = lv_image_create(scr_home);
+    lv_obj_remove_flag(scene_img, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_pos(scene_img, 0, 0);
 
     /* A plain top-anchored label sits with its glyph top at the margin,
      * while the settings button below centers its icon inside a
@@ -264,7 +87,9 @@ void ui_home_screen_create(void)
      */
     lv_obj_t *wifi_box = lv_obj_create(scr_home);
 
-    scene_obj_defaults(wifi_box);
+    lv_obj_remove_flag(wifi_box, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(wifi_box, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_border_width(wifi_box, 0, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(wifi_box, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_pad_all(wifi_box, 0, LV_PART_MAIN);
     lv_obj_set_size(wifi_box, UI_ICON_BUTTON_SIZE, UI_ICON_BUTTON_SIZE);

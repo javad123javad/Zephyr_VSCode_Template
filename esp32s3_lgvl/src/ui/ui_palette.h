@@ -39,9 +39,4 @@ lv_color_t ui_accent_color(enum weather_scene scene);
  */
 lv_color_t ui_warning_color(enum weather_scene scene);
 
-/* Top and bottom colors of the Home screen's vertical sky gradient for a
- * given weather scene.
- */
-void ui_scene_sky_colors(enum weather_scene scene, lv_color_t *out_top, lv_color_t *out_bottom);
-
 #endif /* APP_UI_PALETTE_H_ */

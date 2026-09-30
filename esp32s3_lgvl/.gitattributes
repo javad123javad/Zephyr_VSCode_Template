@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# Raw pixel data (see tools/gen_weather_scenes.py) - occasionally has no
+# NUL byte in the first chunk git's own heuristic checks, so without this
+# it can get misdetected as text and diffed/patched line-by-line as
+# garbage instead of being treated as an opaque binary blob.
+*.rgb565 binary

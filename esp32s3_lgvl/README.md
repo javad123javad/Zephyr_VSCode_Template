@@ -73,7 +73,21 @@ west build -b native_sim/native/64 -d temp_workspace/build_native temp_workspace
 `src/wifi_sim.c` stands in for `src/wifi.c` on this target (picked
 automatically in `CMakeLists.txt` via `CONFIG_ARCH_POSIX`): no real Wi-Fi
 hardware exists on native_sim, so it fabricates a ticking clock and two dummy
-scan results just to exercise the screens.
+scan results just to exercise the screens. `src/weather_sim.c` similarly
+cycles through one representative condition per Home weather scene every 8s,
+so every scene can be seen without a real forecast.
+
+### Regenerating Home's weather scene art
+
+Home's illustrated sky backgrounds (`src/ui/weather_scenes/scene_*.rgb565`)
+are pre-rendered, not drawn at runtime (see AD-7 in `docs/ARCHITECTURE.md`).
+To change them, edit `tools/gen_weather_scenes.py` and re-run it, then
+rebuild normally - the script itself needs Pillow (`pip install pillow`),
+but a plain `west build` never does, since its *output* is committed:
+
+```sh
+python3 tools/gen_weather_scenes.py
+```
 
 ## Configuration
 
