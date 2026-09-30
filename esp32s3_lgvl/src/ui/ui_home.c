@@ -22,9 +22,6 @@
 #include "ui_palette.h"
 #include "weather.h"
 
-#define HOME_CARD_RADIUS 20
-#define HOME_CARD_OPA    LV_OPA_50
-
 static lv_obj_t *scr_home;
 static lv_obj_t *scene_layer;
 static bool scene_built;
@@ -255,41 +252,23 @@ static void show_scene(enum weather_scene scene)
     scene_built = true;
 }
 
-/* --- Translucent scrim cards (keep text legible over any sky scene) --- */
-
-static lv_obj_t *make_scrim_card(lv_obj_t *parent, int32_t w, int32_t h)
-{
-    lv_obj_t *card = lv_obj_create(parent);
-
-    scene_obj_defaults(card);
-    lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_radius(card, HOME_CARD_RADIUS, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(card, lv_color_black(), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(card, HOME_CARD_OPA, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(card, 0, LV_PART_MAIN);
-    lv_obj_set_size(card, w, h);
-
-    return card;
-}
-
 void ui_home_screen_create(void)
 {
     scr_home = lv_obj_create(NULL);
 
-    lv_obj_t *wifi_card = make_scrim_card(scr_home, 210, 40);
-
-    lv_obj_align(wifi_card, LV_ALIGN_TOP_LEFT, UI_EDGE_MARGIN, UI_EDGE_MARGIN);
-    lv_obj_remove_flag(wifi_card, LV_OBJ_FLAG_CLICKABLE);
-
-    wifi_status_label = lv_label_create(wifi_card);
-    lv_obj_set_style_text_font(wifi_status_label, &lv_font_montserrat_20, LV_PART_MAIN);
-    lv_obj_center(wifi_status_label);
-    lv_label_set_text(wifi_status_label, "Connecting...");
+    wifi_status_label = lv_label_create(scr_home);
+    lv_obj_set_style_text_font(wifi_status_label, &lv_font_montserrat_24, LV_PART_MAIN);
+    lv_obj_align(wifi_status_label, LV_ALIGN_TOP_LEFT, UI_EDGE_MARGIN, UI_EDGE_MARGIN);
+    lv_label_set_text(wifi_status_label, LV_SYMBOL_WARNING);
 
     lv_obj_t *settings_btn = lv_button_create(scr_home);
 
     lv_obj_set_size(settings_btn, UI_ICON_BUTTON_SIZE, UI_ICON_BUTTON_SIZE);
     lv_obj_align(settings_btn, LV_ALIGN_TOP_RIGHT, -UI_EDGE_MARGIN, UI_EDGE_MARGIN);
+    lv_obj_set_style_bg_opa(settings_btn, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(settings_btn, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_PRESSED);
+    lv_obj_set_style_border_width(settings_btn, 0, LV_PART_MAIN);
+    lv_obj_set_style_shadow_width(settings_btn, 0, LV_PART_MAIN);
     lv_obj_add_event_cb(settings_btn, home_settings_click_cb, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *settings_label = lv_label_create(settings_btn);
@@ -298,32 +277,24 @@ void ui_home_screen_create(void)
     lv_obj_center(settings_label);
     lv_label_set_text(settings_label, LV_SYMBOL_SETTINGS);
 
-    lv_obj_t *clock_card = make_scrim_card(scr_home, 340, 160);
-
-    lv_obj_align(clock_card, LV_ALIGN_CENTER, 0, 6);
-
-    time_label = lv_label_create(clock_card);
+    time_label = lv_label_create(scr_home);
     lv_obj_set_style_text_font(time_label, &lv_font_montserrat_48, LV_PART_MAIN);
-    lv_obj_align(time_label, LV_ALIGN_CENTER, 0, -34);
+    lv_obj_align(time_label, LV_ALIGN_CENTER, 0, -20);
     lv_label_set_text(time_label, "--:--:--");
 
-    weekday_label = lv_label_create(clock_card);
+    weekday_label = lv_label_create(scr_home);
     lv_obj_set_style_text_font(weekday_label, &lv_font_montserrat_24, LV_PART_MAIN);
-    lv_obj_align(weekday_label, LV_ALIGN_CENTER, 0, 22);
+    lv_obj_align(weekday_label, LV_ALIGN_CENTER, 0, 50);
     lv_label_set_text(weekday_label, "---");
 
-    date_label = lv_label_create(clock_card);
+    date_label = lv_label_create(scr_home);
     lv_obj_set_style_text_font(date_label, &lv_font_montserrat_24, LV_PART_MAIN);
-    lv_obj_align(date_label, LV_ALIGN_CENTER, 0, 54);
+    lv_obj_align(date_label, LV_ALIGN_CENTER, 0, 84);
     lv_label_set_text(date_label, "--- --");
 
-    lv_obj_t *weather_card = make_scrim_card(scr_home, 440, 40);
-
-    lv_obj_align(weather_card, LV_ALIGN_BOTTOM_MID, 0, -UI_EDGE_MARGIN);
-
-    weather_label = lv_label_create(weather_card);
+    weather_label = lv_label_create(scr_home);
     lv_obj_set_style_text_font(weather_label, &lv_font_montserrat_20, LV_PART_MAIN);
-    lv_obj_center(weather_label);
+    lv_obj_align(weather_label, LV_ALIGN_BOTTOM_MID, 0, -UI_EDGE_MARGIN);
     lv_obj_add_event_cb(weather_label, home_weather_cta_click_cb, LV_EVENT_CLICKED, NULL);
     lv_label_set_text(weather_label, "Weather: --");
 
@@ -375,19 +346,19 @@ void ui_home_tick(int64_t epoch_s, enum wifi_net_status status)
     switch (status) {
     case WIFI_STATUS_CONNECTING:
         lv_obj_set_style_text_color(wifi_status_label, lv_color_white(), LV_PART_MAIN);
-        lv_label_set_text(wifi_status_label, LV_SYMBOL_WARNING " Connecting...");
+        lv_label_set_text(wifi_status_label, LV_SYMBOL_WARNING);
         break;
     case WIFI_STATUS_CONNECTED:
         lv_obj_set_style_text_color(wifi_status_label, lv_color_white(), LV_PART_MAIN);
-        lv_label_set_text(wifi_status_label, LV_SYMBOL_REFRESH " Syncing time...");
+        lv_label_set_text(wifi_status_label, LV_SYMBOL_REFRESH);
         break;
     case WIFI_STATUS_TIME_SYNCED:
         lv_obj_set_style_text_color(wifi_status_label, lv_color_white(), LV_PART_MAIN);
-        lv_label_set_text(wifi_status_label, LV_SYMBOL_WIFI " Connected");
+        lv_label_set_text(wifi_status_label, LV_SYMBOL_WIFI);
         break;
     case WIFI_STATUS_DISCONNECTED:
         lv_obj_set_style_text_color(wifi_status_label, ui_warning_color(), LV_PART_MAIN);
-        lv_label_set_text(wifi_status_label, LV_SYMBOL_CLOSE " Offline");
+        lv_label_set_text(wifi_status_label, LV_SYMBOL_CLOSE);
         break;
     }
 
