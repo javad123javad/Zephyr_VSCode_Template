@@ -1,0 +1,92 @@
+/*
+ * Copyright The Zephyr Project Contributors
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * 4WD motor driver inputs, all active low, driven by LEDC PWM channels 0-7.
+ * Each motor has two inputs: "-1" drives forward, "-2" drives reverse.
+ *
+ *   M1-1 GPIO13 ch0   M1-2 GPIO2  ch1
+ *   M2-1 GPIO14 ch2   M2-2 GPIO27 ch3
+ *   M3-1 GPIO26 ch4   M3-2 GPIO25 ch5
+ *   M4-1 GPIO33 ch6   M4-2 GPIO32 ch7
+ */
+
+#include <zephyr/dt-bindings/pwm/pwm.h>
+
+#define MOTOR_PWM(ch) <&ledc0 ch PWM_HZ(1000) PWM_POLARITY_INVERTED>
+
+/ {
+	zephyr,user {
+		/* M1-1, M1-2, M2-1, M2-2, M3-1, M3-2, M4-1, M4-2 */
+		pwms = MOTOR_PWM(0), MOTOR_PWM(1), MOTOR_PWM(2), MOTOR_PWM(3),
+		       MOTOR_PWM(4), MOTOR_PWM(5), MOTOR_PWM(6), MOTOR_PWM(7);
+	};
+};
+
+&pinctrl {
+	ledc0_motors: ledc0_motors {
+		group1 {
+			pinmux = <LEDC_CH0_GPIO13>, <LEDC_CH1_GPIO2>,
+				 <LEDC_CH2_GPIO14>, <LEDC_CH3_GPIO27>,
+				 <LEDC_CH4_GPIO26>, <LEDC_CH5_GPIO25>,
+				 <LEDC_CH6_GPIO33>, <LEDC_CH7_GPIO32>;
+			output-enable;
+		};
+	};
+};
+
+/* "inverted" makes every input idle high (motor off) from driver init on. */
+&ledc0 {
+	pinctrl-0 = <&ledc0_motors>;
+	pinctrl-names = "default";
+	status = "okay";
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	channel0@0 {
+		reg = <0x0>;
+		timer = <0>;
+		inverted;
+	};
+	channel1@1 {
+		reg = <0x1>;
+		timer = <0>;
+		inverted;
+	};
+	channel2@2 {
+		reg = <0x2>;
+		timer = <0>;
+		inverted;
+	};
+	channel3@3 {
+		reg = <0x3>;
+		timer = <0>;
+		inverted;
+	};
+	channel4@4 {
+		reg = <0x4>;
+		timer = <0>;
+		inverted;
+	};
+	channel5@5 {
+		reg = <0x5>;
+		timer = <0>;
+		inverted;
+	};
+	channel6@6 {
+		reg = <0x6>;
+		timer = <0>;
+		inverted;
+	};
+	channel7@7 {
+		reg = <0x7>;
+		timer = <0>;
+		inverted;
+	};
+};
+
+/* SPI2 is routed to GPIO12/13/14/15 on this board; GPIO13/14 drive M1/M2. */
+&spi2 {
+	status = "disabled";
+};

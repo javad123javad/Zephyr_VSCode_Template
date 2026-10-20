@@ -1,0 +1,21 @@
+# Copyright The Zephyr Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+mainmenu "4WD robot"
+
+config ROBOT_WIFI_SSID
+	string "Wi-Fi network name"
+	help
+	  SSID of the Wi-Fi network the robot joins.
+
+config ROBOT_WIFI_PSK
+	string "Wi-Fi password"
+	help
+	  WPA2 passphrase of the Wi-Fi network. Leave empty for an open
+	  network.
+
+config ROBOT_HTTP_PORT
+	int "Web control port"
+	default 80
+
+source "Kconfig.zephyr"

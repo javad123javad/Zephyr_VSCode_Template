@@ -1,0 +1,3 @@
+# Copy to wifi.conf and fill in. wifi.conf is ignored by git.
+CONFIG_ROBOT_WIFI_SSID="my-network"
+CONFIG_ROBOT_WIFI_PSK="my-password"

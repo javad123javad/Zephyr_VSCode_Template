@@ -1,0 +1,14 @@
+sample:
+  description: 4WD robot with PWM motor control and Wi-Fi web control
+  name: robot
+common:
+  tags:
+    - pwm
+    - net
+  platform_allow:
+    - esp32_devkitc/esp32/procpu
+  integration_platforms:
+    - esp32_devkitc/esp32/procpu
+tests:
+  app.robot:
+    build_only: true
