@@ -14,6 +14,8 @@
 #include <zephyr/net/http/service.h>
 
 #include "drive.h"
+#include "web.h"
+#include "ws.h"
 
 LOG_MODULE_REGISTER(web, LOG_LEVEL_INF);
 
@@ -40,11 +42,10 @@ static struct http_resource_detail_static index_resource_detail = {
 	.static_data_len = sizeof(index_html_gz),
 };
 
-/* Parse "<throttle> <turn> <speed>", for example "1 -1 80". */
-static int parse_command(char *body, int32_t *throttle, int32_t *turn, int32_t *speed)
+int web_command(char *cmd)
 {
 	long val[3];
-	char *pos = body;
+	char *pos = cmd;
 
 	for (size_t i = 0U; i < ARRAY_SIZE(val); i++) {
 		char *end;
@@ -56,9 +57,7 @@ static int parse_command(char *body, int32_t *throttle, int32_t *turn, int32_t *
 		pos = end;
 	}
 
-	*throttle = (int32_t)val[0];
-	*turn = (int32_t)val[1];
-	*speed = (int32_t)val[2];
+	drive_mix((int32_t)val[0], (int32_t)val[1], (int32_t)val[2], WEB_DRIVE_MS);
 
 	return 0;
 }
@@ -69,10 +68,6 @@ static int drive_handler(struct http_client_ctx *client, enum http_transaction_s
 {
 	static char body[16];
 	static size_t len;
-	int32_t throttle;
-	int32_t turn;
-	int32_t speed;
-
 	ARG_UNUSED(client);
 	ARG_UNUSED(user_data);
 
@@ -97,8 +92,7 @@ static int drive_handler(struct http_client_ctx *client, enum http_transaction_s
 
 	body[len] = '\0';
 
-	if (parse_command(body, &throttle, &turn, &speed) == 0) {
-		drive_mix(throttle, turn, speed, WEB_DRIVE_MS);
+	if (web_command(body) == 0) {
 		response_ctx->status = HTTP_204_NO_CONTENT;
 	} else {
 		response_ctx->status = HTTP_400_BAD_REQUEST;
@@ -118,6 +112,20 @@ static struct http_resource_detail_dynamic drive_resource_detail = {
 	.cb = drive_handler,
 };
 
+/* Buffer for the WebSocket frame parser, valid for the whole session. */
+static uint8_t ws_parse_buf[128];
+
+static struct http_resource_detail_websocket ws_resource_detail = {
+	.common = {
+		.type = HTTP_RESOURCE_TYPE_WEBSOCKET,
+		/* The upgrade request is an HTTP/1.1 GET. */
+		.bitmask_of_supported_http_methods = BIT(HTTP_GET),
+	},
+	.cb = ws_control_setup,
+	.data_buffer = ws_parse_buf,
+	.data_buffer_len = sizeof(ws_parse_buf),
+};
+
 static uint16_t robot_http_port = CONFIG_ROBOT_HTTP_PORT;
 
 HTTP_SERVICE_DEFINE(robot_http, NULL, &robot_http_port, CONFIG_HTTP_SERVER_MAX_CLIENTS, 4, NULL,
@@ -125,3 +133,4 @@ HTTP_SERVICE_DEFINE(robot_http, NULL, &robot_http_port, CONFIG_HTTP_SERVER_MAX_C
 
 HTTP_RESOURCE_DEFINE(index_resource, robot_http, "/", &index_resource_detail);
 HTTP_RESOURCE_DEFINE(drive_resource, robot_http, "/drive", &drive_resource_detail);
+HTTP_RESOURCE_DEFINE(ws_resource, robot_http, "/ws", &ws_resource_detail);

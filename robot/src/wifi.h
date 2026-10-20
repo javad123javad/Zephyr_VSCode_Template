@@ -16,4 +16,11 @@
  */
 int wifi_start(void);
 
+/**
+ * @brief Get the signal strength of the station link.
+ *
+ * @return RSSI in dBm, or 0 when not connected
+ */
+int wifi_rssi(void);
+
 #endif /* ROBOT_WIFI_H_ */

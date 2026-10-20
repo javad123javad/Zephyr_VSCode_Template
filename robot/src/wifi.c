@@ -105,6 +105,19 @@ static void ipv4_event_handler(struct net_mgmt_event_callback *cb, uint64_t mgmt
 	}
 }
 
+int wifi_rssi(void)
+{
+	struct wifi_iface_status status = {0};
+
+	if ((sta_iface == NULL) ||
+	    (net_mgmt(NET_REQUEST_WIFI_IFACE_STATUS, sta_iface, &status, sizeof(status)) != 0) ||
+	    (status.state < WIFI_STATE_ASSOCIATED)) {
+		return 0;
+	}
+
+	return status.rssi;
+}
+
 int wifi_start(void)
 {
 	if (strlen(CONFIG_ROBOT_WIFI_SSID) == 0U) {

@@ -39,6 +39,7 @@
 </label>
 <div class="hint">Combine arrows to curve &middot; hold Shift for half speed</div>
 <div id="status">stopped</div>
+<div id="link" class="hint">connecting&hellip;</div>
 <script>
 "use strict";
 const KEYS = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right" };
@@ -71,7 +72,39 @@ function command() {
   return throttle + " " + turn + " " + speed();
 }
 
+/* Commands go over the WebSocket; POST /drive is the fallback while it is
+ * not open. */
+const link = document.getElementById("link");
+let ws = null;
+let retryMs = 500;
+
+function connect() {
+  ws = new WebSocket("ws://" + location.host + "/ws");
+  ws.onopen = () => {
+    retryMs = 500;
+    link.textContent = "connected";
+    if (current !== "0 0 0") { ws.send(current); }
+  };
+  ws.onmessage = e => {
+    try {
+      const st = JSON.parse(e.data);
+      link.textContent = "connected" + (st.rssi ? " \u00b7 " + st.rssi + " dBm" : "");
+    } catch (err) { /* ignore malformed status */ }
+  };
+  ws.onclose = () => {
+    ws = null;
+    link.textContent = "reconnecting\u2026";
+    setTimeout(connect, retryMs);
+    retryMs = Math.min(retryMs * 2, 5000);
+  };
+}
+
 function send(cmd) {
+  if (ws !== null && ws.readyState === WebSocket.OPEN) {
+    ws.send(cmd);
+    status.textContent = describe(cmd);
+    return;
+  }
   if (busy && cmd !== "0 0 0") {
     return;
   }
@@ -135,6 +168,7 @@ document.addEventListener("visibilitychange", releaseAll);
 setInterval(() => { if (current !== "0 0 0") { send(current); } }, REPEAT_MS);
 
 update();
+connect();
 </script>
 </body>
 </html>

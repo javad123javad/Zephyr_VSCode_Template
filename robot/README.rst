@@ -79,5 +79,12 @@ runs for 700 ms and the page repeats it every 150 ms while a key is held, so
 the robot stops when the key is released, the tab loses focus or the
 connection drops.
 
-The page posts ``<throttle> <turn> <speed>`` to ``/drive``, for example
-``1 -1 80`` for a forward-left curve at 80 %.
+The page keeps a WebSocket open on ``/ws`` and sends
+``<throttle> <turn> <speed>`` text messages, for example ``1 -1 80`` for a
+forward-left curve at 80 %. The robot answers with a status message twice a
+second (signal strength for now). Closing the socket stops the robot, and a
+new connection takes over from an old one, so a phone that reconnects is not
+locked out. While the socket is down the page posts the same text to
+``/drive``, which also works from the command line::
+
+   curl -d "1 0 60" http://robot.local/drive

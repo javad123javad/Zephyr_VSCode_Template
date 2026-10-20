@@ -16,6 +16,7 @@ target_sources(app PRIVATE
   src/motor.c
   src/web.c
   src/wifi.c
+  src/ws.c
 )
 
 zephyr_linker_sources(SECTIONS sections-rom.ld)
