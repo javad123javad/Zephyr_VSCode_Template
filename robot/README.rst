@@ -8,22 +8,26 @@ motor driver inputs are active low. Pin assignment is in
 Wiring
 ******
 
-Each motor has two driver inputs: ``-1`` drives forward, ``-2`` drives reverse.
+Each motor has two driver inputs, one per direction. Which input turns the
+wheel forward depends on how the motor is mounted and wired; ``motor_inverted``
+in ``src/drive.c`` reverses M2 and M3 so that a positive speed is forward for
+every wheel.
+
 All inputs are active low and driven by LEDC PWM channels 0-7 at 1 kHz, so
 the motors start at 35 % power and ramp up to full speed in about 0.6 s.
 Stops are immediate.
 
-+-------+-------------+-------------+-------+
-| Motor | -1 (fwd)    | -2 (rev)    | Side  |
-+=======+=============+=============+=======+
-| M1    | GPIO13      | GPIO2       | Left  |
-+-------+-------------+-------------+-------+
-| M2    | GPIO14      | GPIO27      | Left  |
-+-------+-------------+-------------+-------+
-| M3    | GPIO26      | GPIO25      | Right |
-+-------+-------------+-------------+-------+
-| M4    | GPIO33      | GPIO32      | Right |
-+-------+-------------+-------------+-------+
++-------+-------------+-------------+-------------+
+| Motor | -1          | -2          | Wheel       |
++=======+=============+=============+=============+
+| M1    | GPIO13      | GPIO2       | Rear left   |
++-------+-------------+-------------+-------------+
+| M2    | GPIO14      | GPIO27      | Rear right  |
++-------+-------------+-------------+-------------+
+| M3    | GPIO26      | GPIO25      | Front right |
++-------+-------------+-------------+-------------+
+| M4    | GPIO33      | GPIO32      | Front left  |
++-------+-------------+-------------+-------------+
 
 The overlay disables SPI2, which the board routes to GPIO13/14.
 

@@ -16,16 +16,25 @@
 
 LOG_MODULE_REGISTER(drive, LOG_LEVEL_INF);
 
-/* Motor placement: M1/M2 on the left side, M3/M4 on the right side. */
-static const enum motor_id left_motors[] = {MOTOR_1, MOTOR_2};
-static const enum motor_id right_motors[] = {MOTOR_3, MOTOR_4};
+/*
+ * Motor placement, seen from above with the front at the top:
+ *
+ *   M4  front  M3
+ *   M1  rear   M2
+ */
+static const enum motor_id left_motors[] = {MOTOR_1, MOTOR_4};
+static const enum motor_id right_motors[] = {MOTOR_2, MOTOR_3};
 
 /*
- * The two sides are mounted mirrored, so a side whose "-1" input turns its
- * wheels backward gets its direction reversed here.
+ * Motors whose "-1" input turns their wheel backward, from mounting or lead
+ * polarity, get their direction reversed here.
  */
-#define LEFT_INVERTED  true
-#define RIGHT_INVERTED false
+static const bool motor_inverted[MOTOR_COUNT] = {
+	[MOTOR_1] = false,
+	[MOTOR_2] = true,
+	[MOTOR_3] = true,
+	[MOTOR_4] = false,
+};
 
 /*
  * Soft start: a side starts at RAMP_START_SPEED, the lowest power that still
@@ -49,7 +58,6 @@ static const enum motor_id right_motors[] = {MOTOR_3, MOTOR_4};
 struct side {
 	const enum motor_id *ids;
 	size_t count;
-	bool inverted;
 	int32_t speed;
 	int32_t target;
 	/* Ramp periods left to coast before starting after a reversal. */
@@ -57,18 +65,17 @@ struct side {
 };
 
 static struct side sides[] = {
-	{left_motors, ARRAY_SIZE(left_motors), LEFT_INVERTED},
-	{right_motors, ARRAY_SIZE(right_motors), RIGHT_INVERTED},
+	{left_motors, ARRAY_SIZE(left_motors)},
+	{right_motors, ARRAY_SIZE(right_motors)},
 };
 
 static K_MUTEX_DEFINE(drive_lock);
 
 static void side_apply(const struct side *side)
 {
-	int32_t speed = side->inverted ? -side->speed : side->speed;
-
 	for (size_t i = 0U; i < side->count; i++) {
-		int err = motor_set(side->ids[i], speed);
+		enum motor_id id = side->ids[i];
+		int err = motor_set(id, motor_inverted[id] ? -side->speed : side->speed);
 
 		if (err != 0) {
 			LOG_WRN("M%u: set failed (%d)", (unsigned int)(side->ids[i] + 1), err);
