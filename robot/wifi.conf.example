@@ -1,3 +1,5 @@
 # Copy to wifi.conf and fill in. wifi.conf is ignored by git.
 CONFIG_ROBOT_WIFI_SSID="my-network"
 CONFIG_ROBOT_WIFI_PSK="my-password"
+# Own network when the one above is not reachable (8-63 characters).
+CONFIG_ROBOT_AP_PSK="robot-password"

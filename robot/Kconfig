@@ -14,6 +14,20 @@ config ROBOT_WIFI_PSK
 	  WPA2 passphrase of the Wi-Fi network. Leave empty for an open
 	  network.
 
+config ROBOT_AP_PSK
+	string "Own network password"
+	help
+	  WPA2 passphrase (8-63 characters) of the network the robot opens
+	  when it cannot join CONFIG_ROBOT_WIFI_SSID. Leave empty to never
+	  open one.
+
+config ROBOT_AP_FALLBACK_SEC
+	int "Seconds before opening the own network"
+	default 20
+	help
+	  How long the robot tries to join CONFIG_ROBOT_WIFI_SSID before it
+	  opens its own network. Without a configured SSID it opens at once.
+
 config ROBOT_HTTP_PORT
 	int "Web control port"
 	default 80

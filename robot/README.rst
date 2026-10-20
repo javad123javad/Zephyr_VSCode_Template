@@ -34,6 +34,22 @@ The overlay disables SPI2, which the board routes to GPIO13/14.
 GPIO2 is a strapping pin: it must be low or floating to enter the serial
 bootloader. If flashing fails to connect, disconnect M1-2 while flashing.
 
+Own Network
+***********
+
+When the robot cannot join ``CONFIG_ROBOT_WIFI_SSID`` within 20 s, or no SSID
+is set, it opens its own WPA2 network ``robot-xxxx`` (last MAC bytes). Join it
+and open http://192.168.4.1/ or http://robot.local/. Set its password in
+``wifi.conf``; without one the robot never opens a network::
+
+   CONFIG_ROBOT_AP_PSK="at-least-8-characters"
+
+The station keeps retrying in the background, every 60 s while the own network
+is up and not at all while a device is connected to it, because each attempt
+moves the shared radio channel and briefly drops those devices. Once the
+station has an address and nobody is on the own network, the robot closes it.
+``CONFIG_ROBOT_AP_FALLBACK_SEC`` sets the 20 s.
+
 Battery Monitoring
 ******************
 
