@@ -18,4 +18,48 @@ config ROBOT_HTTP_PORT
 	int "Web control port"
 	default 80
 
+config ROBOT_BATTERY
+	bool "Battery monitoring"
+	select ADC
+	help
+	  Measure the motor pack on GPIO34 and the board cell on GPIO35
+	  through resistor dividers, show them on the web page and block
+	  driving when a battery runs low. Enable only once the dividers are
+	  fitted: unconnected ADC pins float and read random voltages.
+
+if ROBOT_BATTERY
+
+config ROBOT_BATT_MOTOR_CELLS
+	int "Motor pack cells in series"
+	default 3
+
+config ROBOT_BATT_MOTOR_DIV_TOP
+	int "Motor pack divider, resistor to the battery (ohm)"
+	default 100000
+
+config ROBOT_BATT_MOTOR_DIV_BOTTOM
+	int "Motor pack divider, resistor to ground (ohm)"
+	default 22000
+
+config ROBOT_BATT_MOTOR_CAL
+	int "Motor pack calibration (per mille)"
+	default 1000
+	help
+	  Scale applied to the motor pack reading to correct resistor
+	  tolerance: multimeter voltage / displayed voltage * 1000.
+
+config ROBOT_BATT_BOARD_DIV_TOP
+	int "Board cell divider, resistor to the battery (ohm)"
+	default 100000
+
+config ROBOT_BATT_BOARD_DIV_BOTTOM
+	int "Board cell divider, resistor to ground (ohm)"
+	default 100000
+
+config ROBOT_BATT_BOARD_CAL
+	int "Board cell calibration (per mille)"
+	default 1000
+
+endif # ROBOT_BATTERY
+
 source "Kconfig.zephyr"

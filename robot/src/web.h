@@ -11,7 +11,8 @@
  * @brief Execute a drive command from the web page.
  *
  * The command is "<throttle> <turn> <speed>", for example "1 -1 80", and
- * runs for a short time unless it is repeated.
+ * runs for a short time unless it is repeated. "reset" clears latched drive
+ * inhibits such as a detected collision.
  *
  * @param cmd NUL-terminated command text
  *

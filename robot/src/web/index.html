@@ -9,8 +9,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
 <title>Robot</title>
 <style>
-  :root { color-scheme: light dark; --bg: #f4f4f2; --fg: #1c1c1a; --key: #fff; --on: #2f6fdb; --line: #c9c9c4; }
-  @media (prefers-color-scheme: dark) { :root { --bg: #171716; --fg: #ececea; --key: #262624; --line: #3a3a37; } }
+  :root { color-scheme: light dark; --bg: #f4f4f2; --fg: #1c1c1a; --key: #fff; --on: #2f6fdb; --line: #c9c9c4;
+          --warn: #b45309; --stop-bg: #fde8e8; --stop-fg: #9b1c1c; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #171716; --fg: #ececea; --key: #262624; --line: #3a3a37;
+          --warn: #f59e0b; --stop-bg: #3b1515; --stop-fg: #fca5a5; } }
   body { margin: 0; min-height: 100vh; display: flex; flex-direction: column; align-items: center;
          justify-content: center; gap: 24px; background: var(--bg); color: var(--fg);
          font: 16px system-ui, sans-serif; user-select: none; -webkit-user-select: none; }
@@ -24,9 +26,18 @@
   .speed input { flex: 1; accent-color: var(--on); }
   .speed output { width: 3.5em; text-align: right; font-variant-numeric: tabular-nums; }
   #status, .hint { min-height: 1.2em; opacity: .7; font-size: 14px; }
+  #battery { font-size: 14px; font-variant-numeric: tabular-nums; }
+  #battery .low { color: var(--warn); font-weight: 600; }
+  #inhibit { display: none; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 10px;
+             background: var(--stop-bg); color: var(--stop-fg); font-size: 15px; }
+  #inhibit.on { display: flex; }
+  #inhibit button { font-size: 14px; padding: 6px 12px; border-radius: 8px; color: var(--stop-fg);
+                    border-color: currentColor; background: transparent; }
 </style>
 </head>
 <body>
+<div id="inhibit" role="alert"><span id="inhibit-text"></span>
+  <button id="reset" type="button">Reset</button></div>
 <div class="pad">
   <button id="up" aria-label="Forward">&uarr;</button>
   <button id="left" aria-label="Left">&larr;</button>
@@ -40,6 +51,7 @@
 <div class="hint">Combine arrows to curve &middot; hold Shift for half speed</div>
 <div id="status">stopped</div>
 <div id="link" class="hint">connecting&hellip;</div>
+<div id="battery"></div>
 <script>
 "use strict";
 const KEYS = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right" };
@@ -87,8 +99,7 @@ function connect() {
   };
   ws.onmessage = e => {
     try {
-      const st = JSON.parse(e.data);
-      link.textContent = "connected" + (st.rssi ? " \u00b7 " + st.rssi + " dBm" : "");
+      showStatus(JSON.parse(e.data));
     } catch (err) { /* ignore malformed status */ }
   };
   ws.onclose = () => {
@@ -98,6 +109,47 @@ function connect() {
     retryMs = Math.min(retryMs * 2, 5000);
   };
 }
+
+/* Inhibit bits, see enum drive_inhibit; collision is latched until reset. */
+const INHIBIT = [[1, "battery empty"], [2, "obstacle"], [4, "collision"]];
+const LATCHED = 4;
+const inhibitBox = document.getElementById("inhibit");
+const inhibitText = document.getElementById("inhibit-text");
+const resetBtn = document.getElementById("reset");
+const battery = document.getElementById("battery");
+
+function volts(mv, isLow, label) {
+  if (mv < 0) { return null; }
+  const span = document.createElement("span");
+  span.textContent = label + " " + (mv / 1000).toFixed(2) + " V";
+  if (isLow) { span.className = "low"; }
+  return span;
+}
+
+function showStatus(st) {
+  link.textContent = "connected" + (st.rssi ? " \u00b7 " + st.rssi + " dBm" : "");
+
+  const parts = [volts(st.vm, st.low & 1, "Motor"), volts(st.vb, st.low & 2, "Board")]
+    .filter(p => p !== null);
+  battery.replaceChildren();
+  parts.forEach((p, i) => {
+    if (i > 0) { battery.append(" \u00b7 "); }
+    battery.append(p);
+  });
+
+  const reasons = INHIBIT.filter(([bit]) => st.inhibit & bit).map(([, name]) => name);
+  inhibitBox.classList.toggle("on", reasons.length > 0);
+  inhibitText.textContent = reasons.length > 0 ? "Stopped: " + reasons.join(", ") : "";
+  resetBtn.style.display = (st.inhibit & LATCHED) ? "" : "none";
+}
+
+resetBtn.addEventListener("click", () => {
+  if (ws !== null && ws.readyState === WebSocket.OPEN) {
+    ws.send("reset");
+  } else {
+    fetch("/drive", { method: "POST", body: "reset" }).catch(() => {});
+  }
+});
 
 function send(cmd) {
   if (ws !== null && ws.readyState === WebSocket.OPEN) {

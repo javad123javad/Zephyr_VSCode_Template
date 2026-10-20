@@ -18,6 +18,7 @@ target_sources(app PRIVATE
   src/wifi.c
   src/ws.c
 )
+target_sources_ifdef(CONFIG_ROBOT_BATTERY app PRIVATE src/battery.c)
 
 zephyr_linker_sources(SECTIONS sections-rom.ld)
 zephyr_linker_section(NAME http_resource_desc_robot_http

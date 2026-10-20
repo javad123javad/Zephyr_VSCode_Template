@@ -71,8 +71,17 @@ static struct side sides[] = {
 
 static K_MUTEX_DEFINE(drive_lock);
 
+/* Protected by drive_lock. */
+static uint32_t inhibit;
+static int32_t speed_limit = MOTOR_SPEED_MAX;
+static int64_t last_active;
+
 static void side_apply(const struct side *side)
 {
+	if (side->speed != 0) {
+		last_active = k_uptime_get();
+	}
+
 	for (size_t i = 0U; i < side->count; i++) {
 		enum motor_id id = side->ids[i];
 		int err = motor_set(id, motor_inverted[id] ? -side->speed : side->speed);
@@ -205,9 +214,15 @@ void drive_mix(int32_t throttle, int32_t turn, int32_t speed, uint32_t ms)
 
 	throttle = CLAMP(throttle, -1, 1);
 	turn = CLAMP(turn, -1, 1);
-	speed = CLAMP(speed, DRIVE_SPEED_MIN, MOTOR_SPEED_MAX);
 
-	if (throttle == 0) {
+	(void)k_mutex_lock(&drive_lock, K_FOREVER);
+
+	speed = CLAMP(speed, DRIVE_SPEED_MIN, speed_limit);
+
+	if (inhibit != 0U) {
+		left = 0;
+		right = 0;
+	} else if (throttle == 0) {
 		/* Spin in place; turn > 0 is clockwise. */
 		left = turn * speed;
 		right = -turn * speed;
@@ -224,8 +239,6 @@ void drive_mix(int32_t throttle, int32_t turn, int32_t speed, uint32_t ms)
 		right = throttle * ((turn > 0) ? inner : speed);
 	}
 
-	(void)k_mutex_lock(&drive_lock, K_FOREVER);
-
 	drive_sides(left, right);
 
 	if ((ms > 0U) && ((left != 0) || (right != 0))) {
@@ -235,6 +248,67 @@ void drive_mix(int32_t throttle, int32_t turn, int32_t speed, uint32_t ms)
 	}
 
 	(void)k_mutex_unlock(&drive_lock);
+}
+
+void drive_inhibit_set(uint32_t reasons)
+{
+	(void)k_mutex_lock(&drive_lock, K_FOREVER);
+
+	if ((inhibit & reasons) != reasons) {
+		LOG_WRN("Driving inhibited (0x%x)", (unsigned int)(inhibit | reasons));
+	}
+
+	inhibit |= reasons;
+	drive_sides(0, 0);
+	(void)k_work_cancel_delayable(&stop_work);
+
+	(void)k_mutex_unlock(&drive_lock);
+}
+
+void drive_inhibit_clear(uint32_t reasons)
+{
+	(void)k_mutex_lock(&drive_lock, K_FOREVER);
+
+	if ((inhibit & reasons) != 0U) {
+		LOG_INF("Inhibit cleared (0x%x)", (unsigned int)(inhibit & reasons));
+	}
+
+	inhibit &= ~reasons;
+
+	(void)k_mutex_unlock(&drive_lock);
+}
+
+uint32_t drive_inhibit_get(void)
+{
+	uint32_t reasons;
+
+	(void)k_mutex_lock(&drive_lock, K_FOREVER);
+	reasons = inhibit;
+	(void)k_mutex_unlock(&drive_lock);
+
+	return reasons;
+}
+
+void drive_speed_limit_set(int32_t limit)
+{
+	(void)k_mutex_lock(&drive_lock, K_FOREVER);
+	speed_limit = CLAMP(limit, DRIVE_SPEED_MIN, MOTOR_SPEED_MAX);
+	(void)k_mutex_unlock(&drive_lock);
+}
+
+uint32_t drive_idle_ms(void)
+{
+	int64_t idle = 0;
+
+	(void)k_mutex_lock(&drive_lock, K_FOREVER);
+
+	if ((sides[0].speed == 0) && (sides[1].speed == 0)) {
+		idle = k_uptime_get() - last_active;
+	}
+
+	(void)k_mutex_unlock(&drive_lock);
+
+	return (uint32_t)MIN(idle, (int64_t)UINT32_MAX);
 }
 
 void drive(enum drive_move move, uint32_t ms)

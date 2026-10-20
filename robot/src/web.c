@@ -47,6 +47,11 @@ int web_command(char *cmd)
 	long val[3];
 	char *pos = cmd;
 
+	if (strcmp(cmd, "reset") == 0) {
+		drive_inhibit_clear(DRIVE_INHIBIT_LATCHED);
+		return 0;
+	}
+
 	for (size_t i = 0U; i < ARRAY_SIZE(val); i++) {
 		char *end;
 

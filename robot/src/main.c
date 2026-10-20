@@ -13,6 +13,7 @@
 #include <zephyr/net/http/server.h>
 #include <zephyr/shell/shell.h>
 
+#include "battery.h"
 #include "drive.h"
 #include "motor.h"
 #include "wifi.h"
@@ -65,12 +66,47 @@ static int cmd_motor(const struct shell *sh, size_t argc, char **argv)
 	return err;
 }
 
+static int cmd_status(const struct shell *sh, size_t argc, char **argv)
+{
+	static const char *const names[BATTERY_COUNT] = {"motor pack", "board cell"};
+	struct battery_state st;
+
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+
+	for (size_t i = 0U; i < BATTERY_COUNT; i++) {
+		if (battery_get((enum battery_id)i, &st) != 0) {
+			shell_print(sh, "%s: not measured", names[i]);
+		} else {
+			shell_print(sh, "%s: %u mV%s%s", names[i], st.mv, st.low ? " low" : "",
+				    st.empty ? " empty" : "");
+		}
+	}
+
+	shell_print(sh, "inhibit: 0x%x, idle: %u ms", drive_inhibit_get(), drive_idle_ms());
+
+	return 0;
+}
+
+static int cmd_reset(const struct shell *sh, size_t argc, char **argv)
+{
+	ARG_UNUSED(sh);
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+
+	drive_inhibit_clear(DRIVE_INHIBIT_LATCHED);
+
+	return 0;
+}
+
 SHELL_STATIC_SUBCMD_SET_CREATE(robot_cmds,
 	SHELL_CMD_ARG(fwd, NULL, "Drive forward [ms, 0 = until stop]", cmd_drive, 1, 1),
 	SHELL_CMD_ARG(back, NULL, "Drive backward [ms, 0 = until stop]", cmd_drive, 1, 1),
 	SHELL_CMD_ARG(left, NULL, "Spin left [ms, 0 = until stop]", cmd_drive, 1, 1),
 	SHELL_CMD_ARG(right, NULL, "Spin right [ms, 0 = until stop]", cmd_drive, 1, 1),
 	SHELL_CMD(stop, NULL, "Stop all motors", cmd_drive),
+	SHELL_CMD(status, NULL, "Battery and inhibit state", cmd_status),
+	SHELL_CMD(reset, NULL, "Clear a latched inhibit (collision)", cmd_reset),
 	SHELL_CMD_ARG(motor, NULL, "Drive one motor: <1-4> <fwd|rev|stop|-100..100>", cmd_motor, 3, 0),
 	SHELL_SUBCMD_SET_END);
 
@@ -82,6 +118,11 @@ int main(void)
 
 	if (err != 0) {
 		LOG_WRN("Some motors are unavailable (%d)", err);
+	}
+
+	err = battery_start();
+	if ((err != 0) && (err != -ENOTSUP)) {
+		LOG_ERR("Battery monitoring not started (%d)", err);
 	}
 
 	err = wifi_start();

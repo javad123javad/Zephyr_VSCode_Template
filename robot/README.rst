@@ -34,6 +34,46 @@ The overlay disables SPI2, which the board routes to GPIO13/14.
 GPIO2 is a strapping pin: it must be low or floating to enter the serial
 bootloader. If flashing fails to connect, disconnect M1-2 while flashing.
 
+Battery Monitoring
+******************
+
+Both batteries are measured through resistor dividers on ADC1, which keeps
+working while Wi-Fi is active:
+
++-------------------------+--------+-----------------------+-----------------+
+| Battery                 | Pin    | Divider (top/bottom)  | Pin at full     |
++=========================+========+=======================+=================+
+| Motor pack, 3S Li-ion   | GPIO34 | 100 kOhm / 22 kOhm    | 2.27 V          |
++-------------------------+--------+-----------------------+-----------------+
+| Board cell, 1S Li-ion   | GPIO35 | 100 kOhm / 100 kOhm   | 2.10 V          |
++-------------------------+--------+-----------------------+-----------------+
+
+Put 100 nF from each pin to ground. The ADC reads up to about 2.5 V. Monitoring
+is off by default because unconnected pins float; enable it once the dividers
+are fitted::
+
+   CONFIG_ROBOT_BATTERY=y
+
+Levels per cell, evaluated after the motors have rested for 1 s so that load
+sag does not trigger them:
+
+* motor pack below 3.4 V: speed capped at 60 % (clears above 3.5 V); below
+  3.2 V: driving blocked (clears above 3.4 V);
+* board cell below 3.5 V: speed capped (clears above 3.6 V); below 3.3 V:
+  driving blocked (clears above 3.5 V);
+* while driving, a pack below 3.0 V per cell (board: 3.1 V) for 3 s blocks
+  driving;
+* a pack reading below 1 V per cell counts as switched off, not empty.
+
+To calibrate, compare ``robot status`` with a multimeter and set
+``CONFIG_ROBOT_BATT_MOTOR_CAL`` / ``CONFIG_ROBOT_BATT_BOARD_CAL`` to
+multimeter / shown x 1000. Different resistors are set with the
+``CONFIG_ROBOT_BATT_*_DIV_*`` options.
+
+Blocked driving is shown on the web page with its reason. A low battery
+clears by itself when the voltage recovers; a detected collision is latched
+until the page's Reset button, ``robot reset`` or a ``reset`` message.
+
 Building and Flashing
 *********************
 
@@ -60,6 +100,8 @@ Shell Commands
    robot right [ms]
    robot stop
    robot motor <1-4> <fwd|rev|stop|-100..100>   # one motor, no ramp
+   robot status        # battery voltages and inhibit state
+   robot reset         # clear a latched inhibit (collision)
 
 Web Control
 ***********

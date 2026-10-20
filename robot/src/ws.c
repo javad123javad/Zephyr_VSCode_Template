@@ -12,6 +12,7 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/net/websocket.h>
 
+#include "battery.h"
 #include "drive.h"
 #include "web.h"
 #include "wifi.h"
@@ -77,12 +78,34 @@ static void close_session(int *sock)
 	}
 }
 
+/* Battery voltage in mV for the status message, -1 when not measured. */
+static int32_t battery_mv(enum battery_id id, uint32_t *low)
+{
+	struct battery_state st;
+
+	if (battery_get(id, &st) != 0) {
+		return -1;
+	}
+
+	if (st.low || st.empty) {
+		*low |= BIT(id);
+	}
+
+	return (int32_t)st.mv;
+}
+
 static int send_status(int sock)
 {
-	char buf[64];
+	uint32_t low = 0U;
+	int32_t motor_mv = battery_mv(BATTERY_MOTOR, &low);
+	int32_t board_mv = battery_mv(BATTERY_BOARD, &low);
+	char buf[96];
 	int len;
 
-	len = snprintf(buf, sizeof(buf), "{\"rssi\":%d}", wifi_rssi());
+	len = snprintf(buf, sizeof(buf),
+		       "{\"rssi\":%d,\"inhibit\":%u,\"vm\":%d,\"vb\":%d,\"low\":%u}",
+		       wifi_rssi(), (unsigned int)drive_inhibit_get(), (int)motor_mv,
+		       (int)board_mv, (unsigned int)low);
 	if ((len < 0) || ((size_t)len >= sizeof(buf))) {
 		return -ENOMEM;
 	}

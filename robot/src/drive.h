@@ -7,7 +7,10 @@
 #ifndef ROBOT_DRIVE_H_
 #define ROBOT_DRIVE_H_
 
+#include <stddef.h>
 #include <stdint.h>
+
+#include <zephyr/sys/util.h>
 
 enum drive_move {
 	DRIVE_STOP,
@@ -45,6 +48,57 @@ void drive(enum drive_move move, uint32_t ms);
  *           next call
  */
 void drive_mix(int32_t throttle, int32_t turn, int32_t speed, uint32_t ms);
+
+/** Reasons that block driving; drive_inhibit_set() takes a bitmask of them. */
+enum drive_inhibit {
+	/** A battery is below its cutoff voltage. Clears when it recovers. */
+	DRIVE_INHIBIT_BATTERY = BIT(0),
+	/** An obstacle is too close. */
+	DRIVE_INHIBIT_OBSTACLE = BIT(1),
+	/** A collision was detected. Latched until reset by the user. */
+	DRIVE_INHIBIT_COLLISION = BIT(2),
+};
+
+/** Inhibit reasons that only the user can clear. */
+#define DRIVE_INHIBIT_LATCHED DRIVE_INHIBIT_COLLISION
+
+/**
+ * @brief Block driving and stop the motors.
+ *
+ * Drive commands are ignored while any reason is set. Direct motor control
+ * (shell "robot motor") is not affected.
+ *
+ * @param reasons Bitmask of enum drive_inhibit values
+ */
+void drive_inhibit_set(uint32_t reasons);
+
+/**
+ * @brief Allow driving again for the given reasons.
+ *
+ * @param reasons Bitmask of enum drive_inhibit values
+ */
+void drive_inhibit_clear(uint32_t reasons);
+
+/**
+ * @brief Get the active inhibit reasons.
+ *
+ * @return Bitmask of enum drive_inhibit values, 0 when driving is allowed
+ */
+uint32_t drive_inhibit_get(void);
+
+/**
+ * @brief Cap the speed of drive commands.
+ *
+ * @param limit Maximum speed in percent, clamped to DRIVE_SPEED_MIN..100
+ */
+void drive_speed_limit_set(int32_t limit);
+
+/**
+ * @brief Get how long the motors have been stopped.
+ *
+ * @return Milliseconds since the motors last ran, 0 while they run
+ */
+uint32_t drive_idle_ms(void);
 
 /**
  * @brief Parse a movement name.
