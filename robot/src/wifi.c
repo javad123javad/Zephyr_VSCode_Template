@@ -18,6 +18,7 @@
 #include <zephyr/net/wifi_mgmt.h>
 
 #include "drive.h"
+#include "ota.h"
 #include "wifi.h"
 
 LOG_MODULE_REGISTER(wifi, LOG_LEVEL_INF);
@@ -191,6 +192,7 @@ static void ap_on_work_handler(struct k_work *work)
 	(void)k_mutex_unlock(&wifi_lock);
 
 	LOG_INF("Own network \"%s\" is up: join it and open http://" AP_ADDR "/", ssid);
+	ota_confirm();
 }
 
 static void ap_off_work_handler(struct k_work *work)
@@ -309,6 +311,7 @@ static void ipv4_event_handler(struct net_mgmt_event_callback *cb, uint64_t mgmt
 
 	(void)k_work_cancel_delayable(&ap_on_work);
 	(void)k_work_reschedule(&ap_off_work, K_NO_WAIT);
+	ota_confirm();
 
 	if (net_addr_ntop(NET_AF_INET, addr, buf, sizeof(buf)) != NULL) {
 		LOG_INF("Open http://%s.local/ or http://%s/ to drive the robot",

@@ -14,6 +14,7 @@ target_sources(app PRIVATE
   src/drive.c
   src/main.c
   src/motor.c
+  src/ota.c
   src/web.c
   src/wifi.c
   src/ws.c

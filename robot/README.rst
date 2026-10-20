@@ -99,11 +99,56 @@ Put the Wi-Fi credentials in ``wifi.conf`` (ignored by git):
 
    cp wifi.conf.example wifi.conf
 
+The robot boots through MCUboot and only runs images signed with
+``keys/robot-ec-p256.pem``. That key is private and ignored by git: keep a
+backup, or updates can only be installed over USB with a new key. Create it
+once with:
+
 .. code-block:: console
 
-   west build -b esp32_devkitc/esp32/procpu workspace/robot
+   python3 bootloader/mcuboot/scripts/imgtool.py keygen -t ecdsa-p256 \
+      -k zephyr/workspace/robot/keys/robot-ec-p256.pem
+
+Always build with sysbuild, which builds MCUboot and the signed application.
+The first flash over USB installs both:
+
+.. code-block:: console
+
+   west build -p --sysbuild -b esp32_devkitc/esp32/procpu workspace/robot
    west flash
+
+.. code-block:: console
+
    west espressif monitor
+
+Firmware Update over Wi-Fi
+**************************
+
+Updates use MCUmgr over UDP port 1337. With `smpmgr`_ on the PC:
+
+.. code-block:: console
+
+   pip install smpmgr
+   west build --sysbuild -b esp32_devkitc/esp32/procpu workspace/robot
+   smpmgr --ip <robot address> upgrade build/robot/zephyr/zephyr.signed.bin
+
+``upgrade`` uploads the image, marks it for a test boot and resets the robot.
+If the robot keeps running the old version, mark and reset by hand::
+
+   smpmgr --ip <robot address> image state-read
+   smpmgr --ip <robot address> image state-write <hash of slot 1>
+   smpmgr --ip <robot address> os reset
+
+MCUboot swaps the images on the reset. The new firmware confirms itself as
+soon as it is on the network; an image that never gets there is not
+confirmed, and MCUboot returns to the previous one on the next reset (a power
+cycle if the new image hangs). Bump ``VERSION`` for each release so
+``image state-read`` shows which one runs.
+
+The update port accepts uploads from anyone on the network, but MCUboot
+refuses to boot an image that is not signed with the robot's key.
+
+.. _smpmgr: https://pypi.org/project/smpmgr/
 
 Shell Commands
 **************
