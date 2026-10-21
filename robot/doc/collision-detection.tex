@@ -45,7 +45,7 @@
 \title{\textbf{Collision Detection on a Skid-Steer Robot\\with a Single Accelerometer}\\[0.4em]
        \large Method, Physics and Evaluation}
 \author{Javad Rahimipetroudi}
-\date{21 October 2026 \quad---\quad firmware 0.8.1}
+\date{21 October 2026 \quad---\quad firmware 0.9.0}
 
 \begin{document}
 
@@ -62,7 +62,9 @@ threshold while the robot is driving; braking, which reaches similar values, is 
 because it happens after the sides have stopped, and turning, which shakes the robot as hard
 as a soft collision, uses its own threshold on $\azf$ only. On 34 recorded events the method
 detects all 5 collisions, from a shoe to a box, and raises no alarm on 23 stops and 5 spins;
-the motors stop \SIrange{5}{15}{\milli\second} after contact. The document derives each step
+the motors stop \SIrange{5}{15}{\milli\second} after contact. A second detector derives its
+context from the IMU alone, for vehicles whose drive is not accessible, and reaches the same
+result on these recordings with thinner margins. The document derives each step
 from the physics, gives every formula and constant of the implementation, and states the
 limits of the evidence.
 \end{abstract}
@@ -270,7 +272,8 @@ multiplications whatever the window length:
 \end{align}
 All values are in sensor counts. Comparisons are made on squares against squared thresholds,
 $\text{thr}_\text{counts} = \text{thr}_\text{mg} \cdot 1000 / 3900$, so no square root is taken
-per sample. The first 40 samples after boot fill the windows and are not evaluated.
+per sample. The first 100 samples (\SI{250}{\milli\second}) after boot fill the windows and are not
+evaluated.
 
 % ---------------------------------------------------------------------------------------
 \section{Context and decision rule}
@@ -359,6 +362,60 @@ For $A = 0.6\g$, $P = 1.8\g$ gives $k^* = 4$ (\SI{10}{\milli\second}) and $P = 1
 $k^* = 6$ (\SI{15}{\milli\second}). Measured, the firmware stops the drive
 \SIrange{5}{15}{\milli\second} after the start of the event found by the analysis tool. Stopping
 takes one sample; the gear motors then coast.
+
+% ---------------------------------------------------------------------------------------
+\section{IMU-only context}
+\label{sec:imu}
+
+A vehicle may offer no access to its drive; the collision module then sees only its own
+sensors. A second detector uses the same two features with a context derived from the IMU
+alone. It runs next to the drive-context detector on every sample. \code{CONFIG\_ROBOT\_%
+COLLISION\_ACTING} or the link command \code{C} selects the one that acts; the other one only
+reports, so both can be compared on the same drives.
+
+\textbf{Turning from the gyroscope.} The yaw rate $\omega_z$ (robot frame, bias removed) is
+averaged causally over \SI{250}{\milli\second} and the state is held for
+\SI{0.5}{\second}:
+\begin{equation}
+  \bar\omega_z[n] = \frac{1}{100} \sum_{k=0}^{99} \omega_z[n-k], \qquad
+  \text{turning}'[n] = \exists\, m:\ t[n]-t[m] \le \SI{0.5}{\second} \ \land\
+  |\bar\omega_z[m]| > \Omega .
+\end{equation}
+The hold is needed because the scrubbing wheels turn the robot in jerks: during one spin the
+averaged yaw rate dropped below \SI{15}{\degree\per\second} for moments and the vibration rule
+fired. On the robot the 100-sample sum is compared with $\Omega \cdot 14.375 \cdot 100$ counts.
+
+\textbf{Braking by threshold.} Without the drive state braking can only be excluded by its
+size. It takes about \SI{0.1}{\second} against \SIrange{17}{31}{\milli\second} for an
+impact and stays lower: at most $0.77\g$ $\azf$ and $0.59\g$ $\vib$, against $1.03\g$ and
+$1.17\g$ for the softest collision. The rule is
+\begin{equation}
+  \big[\,\text{turning}' \land \azf > A'_t\,\big] \ \lor\
+  \big[\,\lnot\text{turning}' \land (\azf > A' \lor (V' > 0 \land \vib > V'))\,\big],
+\end{equation}
+with $A' = 0.9\g$, $V' = 0.9\g$, $A'_t = 1.0\g$ and $\Omega = \SI{10}{\degree\per\second}$
+(\code{CONFIG\_ROBOT\_COLLISION\_IMU\_*}; link command \code{I}). There is no start-up
+exclusion: starts and restarts stay below $0.9\g$.
+
+\textbf{Result.} On the 13 recordings the IMU-only detector finds the same 5 collisions with
+the same directions, \SIrange{2}{5}{\milli\second} after the drive-context detector because of
+its higher threshold, and no false alarm on 23 stops, about 40 restarts and 5 spins. Yaw-rate
+thresholds of \SI{8}{\degree\per\second} without hold and \SI{15}{\degree\per\second} with
+the hold gave the same result; \SI{10}{\degree\per\second} with the hold lies between them.
+
+\textbf{What is lost without context.}
+\begin{itemize}
+  \item The margin between the strongest braking ($0.77\g$) and the softest collision
+    ($1.03\g$) is a gap between thresholds, not a logical exclusion. Harder braking or a softer
+    collision falls into it.
+  \item A collision twists the robot (\SIrange{76}{112}{\degree\per\second} of yaw); the hold
+    then applies $A'_t$ for \SI{0.5}{\second}. In the recordings the detection came first,
+    because the yaw lags the acceleration; a soft side hit may be missed.
+  \item A robot pushing slowly against an obstacle looks like a parked one.
+  \item Without context the detector relies fully on the plausibility filter: a corrupted sample
+    of $-36.9\g$ triggered it in a test without the filter, while the drive-context detector
+    ignored it because the robot was not driving.
+\end{itemize}
 
 % ---------------------------------------------------------------------------------------
 \section{Evaluation}
@@ -483,12 +540,15 @@ devices according to ISO~3691-4 and ISO~13849.
   Tilt offset time constant      & 256 samples (\SI{0.64}{\second})  & \code{OFS\_SHIFT} = 8 \\
   $\azf$ window $N_s$            & 10 samples (\SI{25}{\milli\second}) & \code{WIN\_A25} \\
   $\vib$ window $N_v$            & 40 samples (\SI{100}{\milli\second}) & \code{WIN\_VIB} \\
-  Warm-up                        & 40 samples                        & \code{WARMUP} \\
+  Warm-up                        & 100 samples                       & \code{WARMUP} \\
   Start and reversal exclusion   & \SI{0.8}{\second}                 & \code{START\_US} \\
   Thresholds $A$, $V$, $A_t$, $V_t$ & 0.6, 0.9, 1.0\,g, off         & Table~\ref{tab:thresholds} \\
   Direction samples              & 8 (\SI{20}{\milli\second})        & \code{DIR\_SAMPLES} \\
   Peak samples                   & 40 (\SI{100}{\milli\second})      & \code{PEAK\_SAMPLES} \\
   Monitor hold-off               & \SI{1}{\second}                   & \code{HOLDOFF\_US} \\
+  IMU-only: $A'$, $V'$, $A'_t$   & 0.9, 0.9, 1.0\,g                 & \code{CONFIG\_ROBOT\_COLLISION\_}\allowbreak\code{IMU\_*} \\
+  IMU-only: yaw window, $\Omega$, hold & \SI{250}{\milli\second}, \SI{10}{\degree\per\second}, \SI{0.5}{\second} & \code{WIN\_YAW}, \code{TURN\_HOLD\_US} \\
+  Acting detector                & drive context                     & \code{CONFIG\_ROBOT\_COLLISION\_}\allowbreak\code{ACTING} \\
   Analysis: event merge, label window & \SI{0.3}{\second}, $-0.5$ to \SI{+3}{\second} & \code{tools/analyze.py} \\
   \hline
 \end{longtable}

@@ -204,7 +204,7 @@ multiplications regardless of the window length::
 
 All values are in sensor counts. The comparisons are done on squares against squared
 thresholds (``thr_counts = thr_mg · 1000 / 3900``), so no square root is taken per sample.
-The first 40 samples after boot fill the windows and are not evaluated.
+The first 100 samples (250 ms) after boot fill the windows and are not evaluated.
 
 Context
 *******
@@ -257,12 +257,69 @@ Why these values (see Evidence): straight driving stays below 0.12 g ``a25`` and
 Braking is excluded by the context, not by the thresholds: the jolt of a stop comes after
 the sides went to zero.
 
+IMU-only Context
+****************
+
+A vehicle may offer no access to its drive: the collision module then sees only its own sensors.
+A second detector uses the same two features with a context derived from the IMU alone. It runs
+next to the drive-context detector on every sample; ``CONFIG_ROBOT_COLLISION_ACTING`` or the
+link command ``C <0|1>`` selects the one that acts, the other one only reports, so both can be
+compared on the same drives.
+
+Turning comes from the gyroscope. The yaw rate ``ω_z`` (robot frame, bias removed) is averaged
+over the last 250 ms, causally::
+
+   ω̄_z[n] = (1 / 100) · Σ_{k=0}^{99} ω_z[n−k]
+   turning_imu[n] = ( |ω̄_z[m]| > Ω  for some m with t[n] − t[m] ≤ 0.5 s )
+
+The hold of 0.5 s is needed because the scrubbing wheels turn the robot in jerks: during a spin
+the averaged yaw rate dropped below 15 °/s for moments, and the vibration rule fired. On the
+robot the sum is compared directly: ``|Σ ω_z| > Ω · 14.375 · 100`` counts.
+
+Without the drive state, braking is excluded by higher thresholds only. It takes about 0.1 s
+against 17 to 31 ms for an impact, so it stays lower: 0.77 g ``a25`` and 0.59 g ``vib`` at most,
+against 1.03 g and 1.17 g for the softest collision. The rule::
+
+   turning_imu[n]      and  a25[n] > A_t'
+   or
+   not turning_imu[n]  and  ( a25[n] > A'  or  (V' > 0 and vib[n] > V') )
+
+======================  ========  ==========================================  =================
+Threshold               Default   Kconfig                                     Link command
+======================  ========  ==========================================  =================
+``A'``                  0.9 g     ``CONFIG_ROBOT_COLLISION_IMU_A25_MG``       ``I A' V' A_t' Ω``
+``V'`` (0 = unused)     0.9 g     ``CONFIG_ROBOT_COLLISION_IMU_VIB_MG``       (mg, mg, mg, °/s)
+``A_t'``                1.0 g     ``CONFIG_ROBOT_COLLISION_IMU_A25_TURN_MG``
+``Ω`` turning yaw rate  10 °/s    ``CONFIG_ROBOT_COLLISION_IMU_TURN_DPS``
+======================  ========  ==========================================  =================
+
+There is no start-up exclusion: starts and restarts stay below 0.9 g.
+
+On the 13 recordings the IMU-only detector finds the same 5 collisions with the same directions,
+2 to 5 ms after the drive-context detector because of its higher threshold, and no false alarm
+on 23 stops, about 40 restarts and 5 spins. The yaw rates of 8 °/s without hold and of 15 °/s
+with the hold gave the same result; 10 °/s with the hold sits between them.
+
+The differences that matter:
+
+* The margin between the strongest braking (0.77 g) and the softest collision (1.03 g) is a
+  threshold gap, not a logical exclusion. A vehicle that brakes harder, or a softer collision,
+  falls into it.
+* A collision twists the robot (76 to 112 °/s yaw); the hold then applies the turning threshold
+  for 0.5 s. On the recordings the detection came first, because the yaw lags the acceleration;
+  a soft side hit may be missed.
+* A robot pushing slowly against an obstacle looks like a parked one.
+* Without context the detector depends fully on the plausibility filter: a corrupted sample of
+  −36.9 g in one recording triggered it in a test without the filter, while the drive-context
+  detector ignored it because the robot was not driving.
+
 Response
 ********
 
 Mode ``CONFIG_ROBOT_COLLISION_MODE`` or link command ``M <mode>``:
 
-* ``2`` stop: at the detecting sample the drive inhibit ``DRIVE_INHIBIT_COLLISION`` is set,
+* ``2`` stop: at the detecting sample of the acting detector the drive inhibit
+  ``DRIVE_INHIBIT_COLLISION`` is set,
   which sets both sides to zero at once and blocks drive commands until a reset (``R``).
 * ``1`` monitor: the collision is reported, the robot keeps driving; one report per 1 s.
 * ``0`` off.

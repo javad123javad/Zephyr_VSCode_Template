@@ -74,6 +74,13 @@ skid-steer wheels scrub sideways and shake the robot as hard as a collision
 1.0 g counts there by default. The turning thresholds are a separate row in
 the app and ``--a25-turn``/``--vib-turn`` in ``analyze.py``.
 
+A second detector derives its context from the IMU alone, as on a vehicle
+without access to its drive: turning from the gyro's yaw rate, braking excluded
+by higher thresholds (0.9 g). Both run on every sample; the "drive acts" / "IMU
+acts" selector in the app picks the one that stops the robot, the other one
+only reports (purple markers, "shadow" in the events file), so both can be
+compared on the same drives.
+
 The app shows a collision in a red button with the direction it came from
 and its strength; clicking it resets. Collisions appear as red lines in the
 plots, and while recording they are also written to ``<recording>.events.csv``.
