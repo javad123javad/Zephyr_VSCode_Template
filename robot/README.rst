@@ -175,16 +175,27 @@ live and records labelled data:
    pip install -r workspace/robot/tools/requirements.txt
    python3 workspace/robot/tools/robot_app.py robot.local
 
+* The app connects to the last address that worked, else ``robot.local``,
+  else it searches the PC's subnets for a robot (also the robot's own
+  network). It reconnects by itself after a robot reset, also when the robot
+  got a new address.
 * Arrow keys drive; up or down together with left or right drives a curve
   with the inner side slowed to 30 %. Left or right alone spins in place.
-  The slider sets the speed, Shift halves it.
+  The slider sets the speed, Shift halves it. Space or the STOP button stops.
 * A gamepad's left stick drives too (needs pygame): its direction picks the
-  move, how far it is pushed sets the speed.
-* The plots show acceleration and rotation rate in the robot frame (x
-  forward, y left, z up) and both side speeds over the last 5 s.
-* Record writes a CSV in the current directory. Label what happens next with
+  move, how far it is pushed sets the speed. The arrow pad shows the active
+  direction and the bars the actual side speeds.
+* The plots show acceleration (with its magnitude ``|a|``) and rotation rate
+  in the robot frame (x forward, y left, z up) and both side speeds, over
+  2, 5, 10 or 30 s. Pause freezes them for zooming with the mouse.
+* Record writes a CSV into the chosen folder. Label what happens next with
   the buttons or keys: C collision, B brake, V reverse, P push, L lift,
-  S bump, N none.
+  S bump, N none. Labels appear as dashed lines in the plots and in the
+  event list.
+* The cards show the link (signal, drive commands received and the longest
+  gap between them), the batteries, IMU health and the drive state. Dark
+  and light themes; the address, speed, window, theme and folder are
+  remembered.
 
 Acceleration is ramped, slowing down and stopping are immediate. A side that
 changes direction coasts for about 150 ms before starting the other way. Each
