@@ -104,6 +104,37 @@ config ROBOT_COLLISION_VIB_TURN_MG
 	  Spins reach 1.6 g of vibration, as much as collisions, so vibration
 	  is not used while turning by default.
 
+config ROBOT_COLLISION_ACTING
+	int "Detector that acts on a collision"
+	range 0 1
+	default 0
+	help
+	  0: the drive-context detector (command and side speeds); 1: the
+	  IMU-only detector. The other one only reports, so both can be
+	  compared. The PC app can change it.
+
+config ROBOT_COLLISION_IMU_A25_MG
+	int "IMU-only: acceleration over 25 ms threshold (mg)"
+	default 900
+	help
+	  Without the drive state braking is only excluded by this threshold:
+	  stops from full speed reached 0.77 g, collisions 1.03 g and more.
+
+config ROBOT_COLLISION_IMU_VIB_MG
+	int "IMU-only: vibration RMS threshold (mg), 0 = unused"
+	default 900
+
+config ROBOT_COLLISION_IMU_A25_TURN_MG
+	int "IMU-only: acceleration threshold while turning (mg)"
+	default 1000
+
+config ROBOT_COLLISION_IMU_TURN_DPS
+	int "IMU-only: yaw rate over 250 ms that means turning (deg/s)"
+	default 10
+	help
+	  The robot counts as turning while the yaw rate averaged over 250 ms
+	  is above this, and for 500 ms after.
+
 config ROBOT_IMU_INT2
 	bool "IMU module routes A-INT to the ADXL345 INT2 output"
 	help

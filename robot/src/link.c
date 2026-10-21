@@ -74,6 +74,35 @@ static int handle_command(char *cmd)
 		collision_set_mode((enum collision_mode)mode);
 		return 0;
 	}
+	case 'C': {
+		long ctx = strtol(pos, NULL, 10);
+
+		if ((ctx < COLLISION_CTX_DRIVE) || (ctx >= COLLISION_CTX_COUNT)) {
+			return -EINVAL;
+		}
+		collision_set_acting((enum collision_context)ctx);
+		return 0;
+	}
+	case 'I': {
+		long v[4];
+
+		for (size_t n = 0U; n < ARRAY_SIZE(v); n++) {
+			char *end;
+
+			v[n] = strtol(pos, &end, 10);
+			if (end == pos) {
+				return -EINVAL;
+			}
+			pos = end;
+		}
+		if ((v[0] < 100) || (v[0] > 16000) || (v[1] < 0) || (v[1] > 16000) ||
+		    (v[2] < 100) || (v[2] > 16000) || (v[3] < 1) || (v[3] > 500)) {
+			return -EINVAL;
+		}
+		collision_set_imu_thresholds((uint16_t)v[0], (uint16_t)v[1], (uint16_t)v[2],
+					     (uint16_t)v[3]);
+		return 0;
+	}
 	case 'T': {
 		struct collision_state cur;
 		long v[4];
@@ -163,15 +192,25 @@ static void send_status(int s, const struct net_sockaddr_in *to)
 
 	collision_get(&col);
 	st.col_mode = (uint8_t)col.mode;
-	st.col_sector = col.sector;
+	st.col_sector = col.ev[COLLISION_CTX_DRIVE].sector;
 	st.col_a25_thr_mg = col.a25_thr_mg;
 	st.col_vib_thr_mg = col.vib_thr_mg;
-	st.col_a25_mg = col.a25_mg;
-	st.col_vib_mg = col.vib_mg;
-	st.col_count = col.count;
-	st.col_t_us = col.t_us;
+	st.col_a25_mg = col.ev[COLLISION_CTX_DRIVE].a25_mg;
+	st.col_vib_mg = col.ev[COLLISION_CTX_DRIVE].vib_mg;
+	st.col_count = col.ev[COLLISION_CTX_DRIVE].count;
+	st.col_t_us = col.ev[COLLISION_CTX_DRIVE].t_us;
 	st.col_a25_turn_thr_mg = col.a25_turn_thr_mg;
 	st.col_vib_turn_thr_mg = col.vib_turn_thr_mg;
+	st.col_acting = (uint8_t)col.acting;
+	st.imu_col_sector = col.ev[COLLISION_CTX_IMU].sector;
+	st.imu_col_a25_thr_mg = col.imu_a25_thr_mg;
+	st.imu_col_vib_thr_mg = col.imu_vib_thr_mg;
+	st.imu_col_a25_turn_thr_mg = col.imu_a25_turn_thr_mg;
+	st.imu_col_turn_dps = col.imu_turn_dps;
+	st.imu_col_a25_mg = col.ev[COLLISION_CTX_IMU].a25_mg;
+	st.imu_col_vib_mg = col.ev[COLLISION_CTX_IMU].vib_mg;
+	st.imu_col_count = col.ev[COLLISION_CTX_IMU].count;
+	st.imu_col_t_us = col.ev[COLLISION_CTX_IMU].t_us;
 	st.gyro_bias_updates = imu.bias_updates;
 	for (size_t i = 0U; i < 3U; i++) {
 		st.gyro_bias_mdps[i] =

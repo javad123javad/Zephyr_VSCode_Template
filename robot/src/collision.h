@@ -16,8 +16,21 @@ enum collision_mode {
 	COLLISION_OFF,
 	/** Detect and report, keep driving. For recording test data. */
 	COLLISION_MONITOR,
-	/** Detect, stop the motors and latch DRIVE_INHIBIT_COLLISION. */
+	/** The acting detector stops the motors and latches DRIVE_INHIBIT_COLLISION. */
 	COLLISION_STOP,
+};
+
+/**
+ * Two detectors run on the same features and differ in where their context
+ * comes from. One acts (stops the robot in stop mode), the other only
+ * reports, so that both can be compared on the same drives.
+ */
+enum collision_context {
+	/** Context from the drive: command and side speeds. */
+	COLLISION_CTX_DRIVE,
+	/** Context from the IMU alone, as on a vehicle without access to its drive. */
+	COLLISION_CTX_IMU,
+	COLLISION_CTX_COUNT,
 };
 
 /**
@@ -27,14 +40,7 @@ enum collision_mode {
  */
 #define COLLISION_SECTORS 8
 
-struct collision_state {
-	enum collision_mode mode;
-	/** Thresholds in mg: horizontal acceleration over 25 ms, vibration RMS. */
-	uint16_t a25_thr_mg;
-	uint16_t vib_thr_mg;
-	/** Thresholds while turning; the wheels scrub and shake, 0 = unused. */
-	uint16_t a25_turn_thr_mg;
-	uint16_t vib_turn_thr_mg;
+struct collision_event {
 	/** Collisions detected since boot. */
 	uint32_t count;
 	/** Last collision: sample time (same clock as the IMU stream). */
@@ -44,6 +50,25 @@ struct collision_state {
 	uint16_t vib_mg;
 	/** Last collision: direction it came from, 0..COLLISION_SECTORS-1. */
 	uint8_t sector;
+};
+
+struct collision_state {
+	enum collision_mode mode;
+	/** Detector that stops the robot in stop mode. */
+	enum collision_context acting;
+	/** Drive context: thresholds in mg, while straight and while turning. */
+	uint16_t a25_thr_mg;
+	uint16_t vib_thr_mg;
+	uint16_t a25_turn_thr_mg;
+	/** 0: vibration not used while turning. */
+	uint16_t vib_turn_thr_mg;
+	/** IMU context: thresholds in mg, and the yaw rate that means turning. */
+	uint16_t imu_a25_thr_mg;
+	uint16_t imu_vib_thr_mg;
+	uint16_t imu_a25_turn_thr_mg;
+	uint16_t imu_turn_dps;
+	/** Last collision of each detector. */
+	struct collision_event ev[COLLISION_CTX_COUNT];
 };
 
 /**
@@ -63,7 +88,14 @@ void collision_process(const struct imu_sample *s);
 void collision_set_mode(enum collision_mode mode);
 
 /**
- * @brief Set the detection thresholds.
+ * @brief Select the detector that acts; the other one only reports.
+ *
+ * @param ctx Detector
+ */
+void collision_set_acting(enum collision_context ctx);
+
+/**
+ * @brief Set the thresholds of the drive-context detector.
  *
  * @param a25_mg Horizontal acceleration averaged over 25 ms, mg
  * @param vib_mg Vibration RMS over 100 ms, mg
@@ -74,7 +106,18 @@ void collision_set_thresholds(uint16_t a25_mg, uint16_t vib_mg, uint16_t a25_tur
 			      uint16_t vib_turn_mg);
 
 /**
- * @brief Get the mode, thresholds and the last collision.
+ * @brief Set the thresholds of the IMU-only detector.
+ *
+ * @param a25_mg Horizontal acceleration averaged over 25 ms, mg
+ * @param vib_mg Vibration RMS over 100 ms, mg
+ * @param a25_turn_mg Averaged acceleration while turning, mg
+ * @param turn_dps Yaw rate averaged over 250 ms above which the robot turns
+ */
+void collision_set_imu_thresholds(uint16_t a25_mg, uint16_t vib_mg, uint16_t a25_turn_mg,
+				  uint16_t turn_dps);
+
+/**
+ * @brief Get the mode, thresholds and the last collision of each detector.
  *
  * @param st Filled with the current state
  */

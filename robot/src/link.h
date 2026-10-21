@@ -14,6 +14,9 @@
  *   "T <a25> <vib> [<a25 turning> <vib turning>]"
  *                              collision thresholds in mg; vib turning 0 =
  *                              vibration unused while turning
+ *   "C <ctx>"                  acting detector: 0 drive context, 1 IMU only
+ *   "I <a25> <vib> <a25 turning> <turn deg/s>"
+ *                              IMU-only detector thresholds; vib 0 = unused
  *   "X"                        end the session
  *
  * Robot to PC, binary, little endian: struct link_imu_header followed by
@@ -91,6 +94,21 @@ struct link_status {
 	/** Collision thresholds while turning, mg; vibration 0 = unused. */
 	uint16_t col_a25_turn_thr_mg;
 	uint16_t col_vib_turn_thr_mg;
+	/**
+	 * The col_ fields above are the drive-context detector. The IMU-only
+	 * detector follows; col_acting is enum collision_context.
+	 */
+	uint8_t col_acting;
+	uint8_t imu_col_sector;
+	uint16_t imu_col_a25_thr_mg;
+	uint16_t imu_col_vib_thr_mg;
+	uint16_t imu_col_a25_turn_thr_mg;
+	uint16_t imu_col_turn_dps;
+	uint16_t imu_col_a25_mg;
+	uint16_t imu_col_vib_mg;
+	uint16_t reserved3;
+	uint32_t imu_col_count;
+	uint32_t imu_col_t_us;
 } __packed;
 
 #endif /* ROBOT_LINK_H_ */
