@@ -46,6 +46,8 @@ struct imu_stats {
 	uint32_t int_timeouts;
 	/** Samples dropped because the stream buffer was full. */
 	uint32_t dropped;
+	/** Samples discarded as corrupted: outside what the sensor can report. */
+	uint32_t rejected;
 	/** Sampling rate in Hz. */
 	uint16_t rate_hz;
 	/** Gyro I2C address, 0 when not found. */

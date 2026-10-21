@@ -30,7 +30,8 @@ from PySide6 import QtCore, QtGui, QtWidgets
 PORT = 4244
 IMU_HEADER = struct.Struct("<IIIIHBB")
 IMU_SAMPLE = struct.Struct("<I3h3hbbBbbB")
-STATUS = struct.Struct("<I3BbBBBBiiIIIIiiiIIII")
+STATUS = struct.Struct("<I3BbBBBBiiIIIIiiiIIIII")
+STATUS_V071 = struct.Struct("<I3BbBBBBiiIIIIiiiIIII")
 STATUS_V070 = struct.Struct("<I3BbBBBBiiIIIIiiiI")
 IMU_MAGIC = 0x31554D49
 STATUS_MAGIC = 0x31415453
@@ -165,8 +166,10 @@ class Link:
                     continue
                 if len(data) >= STATUS.size:
                     status = STATUS.unpack_from(data)
+                elif len(data) >= STATUS_V071.size:
+                    status = STATUS_V071.unpack_from(data) + (None,)
                 else:
-                    status = STATUS_V070.unpack_from(data) + (None, None, None)
+                    status = STATUS_V070.unpack_from(data) + (None, None, None, None)
                 self.last_status = time.time()
             elif magic == IMU_MAGIC and len(data) >= IMU_HEADER.size and self.addr \
                     and src[0] == self.addr[0]:
@@ -659,7 +662,8 @@ class Window(QtWidgets.QMainWindow):
 
     def show_status(self, st):
         (_, v0, v1, v2, rssi, inhibit, low, imu_ok, _, motor_mv, board_mv, samples,
-         timeouts, dropped, bias_updates, bx, by, bz, uptime, cmds, gap_max, send_max) = st
+         timeouts, dropped, bias_updates, bx, by, bz, uptime, cmds, gap_max, send_max,
+         rejected) = st
         addr = self.link.addr[0]
         if self.host.text().strip() not in (addr, "robot.local") and not self.host.hasFocus():
             self.host.setText(addr)
@@ -687,8 +691,9 @@ class Window(QtWidgets.QMainWindow):
         if imu_ok:
             i.set("Rate", f"{self.rate:.0f} Hz received")
             i.set("Samples", f"{samples}")
-            i.set("Missed", f"{timeouts} int, {dropped} dropped, {self.link.lost_packets} lost",
-                  warn=bool(dropped or self.link.lost_packets))
+            corrupt = f", {rejected} corrupted" if rejected is not None else ""
+            i.set("Missed", f"{timeouts} int, {dropped} dropped, {self.link.lost_packets} lost"
+                            f"{corrupt}", warn=bool(dropped or self.link.lost_packets or rejected))
             i.set("Gyro bias", f"{bx / 1000:+.2f} {by / 1000:+.2f} {bz / 1000:+.2f} °/s "
                                f"({bias_updates}x)")
         else:

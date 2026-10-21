@@ -103,8 +103,9 @@ static int cmd_imu(const struct shell *sh, size_t argc, char **argv)
 		return -ENODEV;
 	}
 
-	shell_print(sh, "%u Hz, %u samples, %u interrupt timeouts, %u dropped, gyro 0x%02x",
-		    st.rate_hz, st.samples, st.int_timeouts, st.dropped, st.gyro_addr);
+	shell_print(sh, "%u Hz, %u samples, %u interrupt timeouts, %u dropped, %u corrupted, "
+		    "gyro 0x%02x", st.rate_hz, st.samples, st.int_timeouts, st.dropped, st.rejected,
+		    st.gyro_addr);
 	shell_print(sh, "accel mg: %d %d %d", (s.accel[0] * IMU_ACCEL_UG_PER_LSB) / 1000,
 		    (s.accel[1] * IMU_ACCEL_UG_PER_LSB) / 1000,
 		    (s.accel[2] * IMU_ACCEL_UG_PER_LSB) / 1000);

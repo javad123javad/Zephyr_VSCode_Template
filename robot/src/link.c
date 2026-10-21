@@ -119,6 +119,7 @@ static void send_status(int s, const struct net_sockaddr_in *to)
 	st.imu_samples = imu.samples;
 	st.imu_int_timeouts = imu.int_timeouts;
 	st.imu_dropped = imu.dropped;
+	st.imu_rejected = imu.rejected;
 	st.gyro_bias_updates = imu.bias_updates;
 	for (size_t i = 0U; i < 3U; i++) {
 		st.gyro_bias_mdps[i] =

@@ -40,6 +40,8 @@ LOG_MODULE_REGISTER(imu, LOG_LEVEL_INF);
 #define ADXL345_DATA_READY  BIT(7)
 /* Full resolution (3.9 mg/LSB at every range), +-16 g, active-high INT. */
 #define ADXL345_FORMAT_16G  (BIT(3) | 0x03)
+/* Full resolution at +-16 g covers +-4096 counts; more is a corrupted read. */
+#define ADXL345_MAX_COUNTS  4096
 
 #define ITG3205_ADDR_LOW    0x68
 #define ITG3205_ADDR_HIGH   0x69
@@ -259,7 +261,12 @@ static int read_sample(struct imu_sample *s)
 	}
 
 	for (size_t i = 0U; i < 3U; i++) {
-		a[i] = (int16_t)(sys_get_le16(&buf[2U * i]) - accel_ofs[i]);
+		int16_t raw = (int16_t)sys_get_le16(&buf[2U * i]);
+
+		if ((raw > ADXL345_MAX_COUNTS) || (raw < -ADXL345_MAX_COUNTS)) {
+			return -EBADMSG;
+		}
+		a[i] = (int16_t)(raw - accel_ofs[i]);
 	}
 
 	if (gyro_addr != 0U) {
@@ -336,8 +343,15 @@ static void sample_thread(void *p1, void *p2, void *p3)
 		health_beat(HEALTH_IMU);
 		s.t_us = timed_out ? (uint32_t)k_cyc_to_us_floor64(k_cycle_get_64()) : drdy_us;
 
-		if (read_sample(&s) == 0) {
+		int err = read_sample(&s);
+
+		if (err == 0) {
 			store(&s, timed_out);
+		} else if (err == -EBADMSG) {
+			k_spinlock_key_t key = k_spin_lock(&lock);
+
+			stats.rejected++;
+			k_spin_unlock(&lock, key);
 		}
 
 		(void)gpio_pin_interrupt_configure_dt(&drdy, GPIO_INT_LEVEL_ACTIVE);
