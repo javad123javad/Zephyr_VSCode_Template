@@ -50,6 +50,28 @@ moves the shared radio channel and briefly drops those devices. Once the
 station has an address and nobody is on the own network, the robot closes it.
 ``CONFIG_ROBOT_AP_FALLBACK_SEC`` sets the 20 s.
 
+Collision Analysis
+******************
+
+``tools/analyze.py`` finds impact-like events in recordings and checks the
+collision rule against the labels set in the app:
+
+.. code-block:: console
+
+   python3 workspace/robot/tools/analyze.py robot-*.csv --plots plots/
+
+It computes the horizontal acceleration averaged over 25 ms (``a25``, the
+short push of an impact; driving vibration averages out), the vibration RMS
+over 100 ms (``vib``) and the drive context (idle, starting, driving,
+stopping). The rule under test reports a collision when ``a25`` exceeds
+0.6 g or ``vib`` exceeds 0.9 g while driving, with the direction it came
+from. A hard stop at full speed reaches about 0.75 g ``a25`` but happens
+after the stop command, so the context separates it. The thresholds are
+provisional; ``--a25`` and ``--vib`` change them, and the per-label summary
+shows how they separate the labelled events. Physically impossible samples
+(corrupted reads) are dropped; the firmware also discards them and counts
+them in the app's IMU card.
+
 Battery Monitoring
 ******************
 

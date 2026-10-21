@@ -3,3 +3,5 @@ pyqtgraph
 numpy
 # Optional, for gamepad driving.
 pygame
+# Optional, for analyze.py plots.
+matplotlib
