@@ -55,7 +55,9 @@ Collision Detection
 
 ``doc/collision-detection.rst`` describes the method in full: the physics,
 every formula and constant, the measurements behind the thresholds and its
-limits.
+limits. ``doc/collision-detection.tex`` is the same as a report with figures
+from the recordings; build it with ``pdflatex collision-detection.tex`` (twice)
+in ``doc/``, and regenerate the figures with ``tools/make_figures.py``.
 
 The robot runs the rule below on every IMU sample (``src/collision.c``).
 Modes, selectable in the app or with ``CONFIG_ROBOT_COLLISION_MODE``:
