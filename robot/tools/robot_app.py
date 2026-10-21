@@ -30,9 +30,33 @@ from PySide6 import QtCore, QtGui, QtWidgets
 PORT = 4244
 IMU_HEADER = struct.Struct("<IIIIHBB")
 IMU_SAMPLE = struct.Struct("<I3h3hbbBbbB")
-STATUS = struct.Struct("<I3BbBBBBiiIIIIiiiIIIII")
-STATUS_V071 = struct.Struct("<I3BbBBBBiiIIIIiiiIIII")
-STATUS_V070 = struct.Struct("<I3BbBBBBiiIIIIiiiI")
+# Status packet (src/link.h). Each firmware version appended fields; a packet
+# is parsed as far as it goes, missing fields are absent from the dict.
+STATUS_PARTS = [
+    ("<I3BbBBBBiiIIIIiiiI", ["magic", "v0", "v1", "v2", "rssi", "inhibit", "low", "imu_ok",
+                            "res", "motor_mv", "board_mv", "samples", "timeouts", "dropped",
+                            "bias_updates", "bx", "by", "bz", "uptime"]),
+    ("<III", ["cmds", "gap_max", "send_max"]),            # 0.7.1
+    ("<I", ["rejected"]),                                 # 0.7.6
+    ("<BBHHHHHII", ["col_mode", "col_sector", "col_a25_thr", "col_vib_thr", "col_a25",
+                    "col_vib", "res2", "col_count", "col_t_us"]),  # 0.8.0
+    ("<HH", ["col_a25_turn_thr", "col_vib_turn_thr"]),   # 0.8.1
+]
+STATUS_MIN = struct.calcsize(STATUS_PARTS[0][0])
+SECTORS = ["front", "front-left", "left", "back-left", "back", "back-right", "right",
+           "front-right"]
+COLLISION_MODES = ["Off", "Monitor", "Stop"]
+
+
+def parse_status(data):
+    st, off = {}, 0
+    for fmt, names in STATUS_PARTS:
+        size = struct.calcsize(fmt)
+        if len(data) < off + size:
+            break
+        st.update(zip(names, struct.unpack_from(fmt, data, off)))
+        off += size
+    return st
 IMU_MAGIC = 0x31554D49
 STATUS_MAGIC = 0x31415453
 ACCEL_G = 0.0039
@@ -157,19 +181,14 @@ class Link:
             if len(data) < 4:
                 continue
             magic = struct.unpack_from("<I", data)[0]
-            if magic == STATUS_MAGIC and len(data) >= STATUS_V070.size:
+            if magic == STATUS_MAGIC and len(data) >= STATUS_MIN:
                 if self.searching:
                     # First robot that answers the search.
                     self.addr = (src[0], PORT)
                     self.searching = False
                 if self.addr is None or src[0] != self.addr[0]:
                     continue
-                if len(data) >= STATUS.size:
-                    status = STATUS.unpack_from(data)
-                elif len(data) >= STATUS_V071.size:
-                    status = STATUS_V071.unpack_from(data) + (None,)
-                else:
-                    status = STATUS_V070.unpack_from(data) + (None, None, None, None)
+                status = parse_status(data)
                 self.last_status = time.time()
             elif magic == IMU_MAGIC and len(data) >= IMU_HEADER.size and self.addr \
                     and src[0] == self.addr[0]:
@@ -482,8 +501,50 @@ class Window(QtWidgets.QMainWindow):
         middle.addWidget(self.plots, 1)
 
         side = QtWidgets.QVBoxLayout()
+        self.collision_btn = QtWidgets.QPushButton("No collision", objectName="collision",
+                                                   clicked=self.acknowledge_collision)
+        self.collision_btn.setMinimumHeight(56)
+        self.collision_btn.setFocusPolicy(QtCore.Qt.NoFocus)
+        self.collision_btn.setProperty("alert", False)
+        side.addWidget(self.collision_btn)
+        det = QtWidgets.QHBoxLayout()
+        det.addWidget(QtWidgets.QLabel("Detect"))
+        self.col_mode = QtWidgets.QComboBox()
+        self.col_mode.addItems(COLLISION_MODES)
+        self.col_mode.setFocusPolicy(QtCore.Qt.NoFocus)
+        self.col_mode.setToolTip("Off: no detection. Monitor: report only, keep driving.\n"
+                                 "Stop: stop the motors until Reset.")
+        self.col_mode.activated.connect(lambda i: self.link.send(f"M {i}"))
+        det.addWidget(self.col_mode, 1)
+        self.col_a25 = QtWidgets.QSpinBox(minimum=100, maximum=4000, singleStep=50,
+                                          suffix=" mg")
+        self.col_vib = QtWidgets.QSpinBox(minimum=100, maximum=4000, singleStep=50,
+                                          suffix=" mg")
+        turn = QtWidgets.QHBoxLayout()
+        turn.addWidget(QtWidgets.QLabel("Turning"))
+        turn.addStretch(1)
+        self.col_a25_turn = QtWidgets.QSpinBox(minimum=100, maximum=4000, singleStep=50,
+                                               suffix=" mg")
+        self.col_vib_turn = QtWidgets.QSpinBox(minimum=0, maximum=4000, singleStep=50,
+                                               suffix=" mg", specialValueText="off")
+        for box, row, tip in (
+                (self.col_a25, det, "a25 threshold: horizontal acceleration over 25 ms"),
+                (self.col_vib, det, "vibration threshold: RMS over 100 ms"),
+                (self.col_a25_turn, turn, "a25 threshold while spinning or curving"),
+                (self.col_vib_turn, turn, "vibration threshold while turning; off: unused,\n"
+                                          "the wheels scrub and shake the robot")):
+            box.setToolTip(tip)
+            box.setFocusPolicy(QtCore.Qt.ClickFocus)
+            box.editingFinished.connect(self.send_thresholds)
+            row.addWidget(box)
+        side.addLayout(det)
+        side.addLayout(turn)
+        self.turn_row = [self.col_a25_turn, self.col_vib_turn]
         self.drive_pad = DrivePad()
         self.drive_pad.pressed.connect(self.pad_pressed)
+        self.col_count = None      # robot's collision count when last seen
+        self.col_alert = False     # new collision not yet acknowledged
+        self.events_file = None
         side.addWidget(self.drive_pad)
         sp = QtWidgets.QHBoxLayout()
         sp.addWidget(QtWidgets.QLabel("Speed"))
@@ -582,6 +643,10 @@ class Window(QtWidgets.QMainWindow):
             QPushButton:checked {{ background: {th['accent']}; color: white; }}
             QPushButton#stop {{ background: #c0262d; color: white; font-weight: 700;
                                 border: none; font-size: 15px; }}
+            QPushButton#collision {{ background: {th['card']}; color: {th['muted']};
+                                     font-size: 14px; }}
+            QPushButton#collision[alert="true"] {{ background: #d92d20; color: white;
+                                     font-weight: 700; font-size: 15px; border: none; }}
             QLineEdit, QComboBox, QListWidget {{ background: {th['card']};
                 border: 1px solid {th['line']}; border-radius: 5px; padding: 3px; }}
             QGroupBox {{ border: 1px solid {th['line']}; border-radius: 8px;
@@ -661,9 +726,6 @@ class Window(QtWidgets.QMainWindow):
             self.connect_robot()
 
     def show_status(self, st):
-        (_, v0, v1, v2, rssi, inhibit, low, imu_ok, _, motor_mv, board_mv, samples,
-         timeouts, dropped, bias_updates, bx, by, bz, uptime, cmds, gap_max, send_max,
-         rejected) = st
         addr = self.link.addr[0]
         if self.host.text().strip() not in (addr, "robot.local") and not self.host.hasFocus():
             self.host.setText(addr)
@@ -672,38 +734,108 @@ class Window(QtWidgets.QMainWindow):
 
         c = self.card_link
         c.set("Address", addr)
-        c.set("Firmware", f"{v0}.{v1}.{v2}")
-        c.set("Signal", f"{rssi} dBm", warn=rssi < -75)
-        c.set("Uptime", f"{uptime / 1000:.0f} s")
-        if cmds is None:
-            c.set("Commands", "firmware too old")
+        c.set("Firmware", f"{st['v0']}.{st['v1']}.{st['v2']}")
+        c.set("Signal", f"{st['rssi']} dBm", warn=st["rssi"] < -75)
+        c.set("Uptime", f"{st['uptime'] / 1000:.0f} s")
+        if "cmds" in st:
+            c.set("Commands", f"{st['cmds']} rx, max gap {st['gap_max']} ms, "
+                              f"send {st['send_max']} ms",
+                  warn=st["gap_max"] > 500 and st["cmds"] > 1)
         else:
-            c.set("Commands", f"{cmds} rx, max gap {gap_max} ms, send {send_max} ms",
-                  warn=gap_max > 500 and cmds > 1)
+            c.set("Commands", "firmware too old")
 
         b = self.card_bat
-        b.set("Motor pack", f"{motor_mv / 1000:.2f} V" if motor_mv >= 0 else "not measured",
-              warn=bool(low & 1))
-        b.set("Board cell", f"{board_mv / 1000:.2f} V" if board_mv >= 0 else "not measured",
-              warn=bool(low & 2))
+        b.set("Motor pack", f"{st['motor_mv'] / 1000:.2f} V" if st["motor_mv"] >= 0
+              else "not measured", warn=bool(st["low"] & 1))
+        b.set("Board cell", f"{st['board_mv'] / 1000:.2f} V" if st["board_mv"] >= 0
+              else "not measured", warn=bool(st["low"] & 2))
 
         i = self.card_imu
-        if imu_ok:
-            i.set("Rate", f"{self.rate:.0f} Hz received")
-            i.set("Samples", f"{samples}")
+        if st["imu_ok"]:
+            rejected = st.get("rejected")
             corrupt = f", {rejected} corrupted" if rejected is not None else ""
-            i.set("Missed", f"{timeouts} int, {dropped} dropped, {self.link.lost_packets} lost"
-                            f"{corrupt}", warn=bool(dropped or self.link.lost_packets or rejected))
-            i.set("Gyro bias", f"{bx / 1000:+.2f} {by / 1000:+.2f} {bz / 1000:+.2f} °/s "
-                               f"({bias_updates}x)")
+            i.set("Rate", f"{self.rate:.0f} Hz received")
+            i.set("Samples", f"{st['samples']}")
+            i.set("Missed", f"{st['timeouts']} int, {st['dropped']} dropped, "
+                            f"{self.link.lost_packets} lost{corrupt}",
+                  warn=bool(st["dropped"] or self.link.lost_packets or rejected))
+            i.set("Gyro bias", f"{st['bx'] / 1000:+.2f} {st['by'] / 1000:+.2f} "
+                               f"{st['bz'] / 1000:+.2f} °/s ({st['bias_updates']}x)")
         else:
             i.set("Rate", "IMU not running", warn=True)
 
+        inhibit = st["inhibit"]
         reasons = [n for bit, n in INHIBIT_NAMES.items() if inhibit & bit]
         self.card_drive.set("Inhibit", ", ".join(reasons) or "none", warn=bool(reasons))
         self.banner.setVisible(bool(reasons))
         self.banner_text.setText("Stopped: " + ", ".join(reasons))
         self.reset_btn.setVisible(bool(inhibit & 4))
+        self.show_collision(st)
+
+    # Collisions -------------------------------------------------------------
+
+    def show_collision(self, st):
+        if "col_count" not in st:
+            self.collision_btn.setText("Collision detection needs firmware 0.8")
+            return
+        for box, key in ((self.col_mode, "col_mode"),):
+            if box.currentIndex() != st[key]:
+                box.setCurrentIndex(st[key])
+        for box in self.turn_row:
+            box.setEnabled("col_a25_turn_thr" in st)
+        for box, key in ((self.col_a25, "col_a25_thr"), (self.col_vib, "col_vib_thr"),
+                         (self.col_a25_turn, "col_a25_turn_thr"),
+                         (self.col_vib_turn, "col_vib_turn_thr")):
+            if key not in st:
+                continue
+            if not box.hasFocus() and box.value() != st[key]:
+                box.blockSignals(True)
+                box.setValue(st[key])
+                box.blockSignals(False)
+        if self.col_count is not None and st["col_count"] > self.col_count:
+            self.new_collision(st)
+        self.col_count = st["col_count"]
+        latched = bool(st["inhibit"] & 4)
+        alert = self.col_alert or latched
+        if alert != self.collision_btn.property("alert"):
+            self.collision_btn.setProperty("alert", alert)
+            self.collision_btn.style().unpolish(self.collision_btn)
+            self.collision_btn.style().polish(self.collision_btn)
+        if not alert:
+            n = st["col_count"]
+            self.collision_btn.setText(f"No collision ({n} since boot)" if n else "No collision")
+
+    def new_collision(self, st):
+        where = SECTORS[st["col_sector"] % len(SECTORS)]
+        g = st["col_a25"] / 1000
+        self.col_alert = True
+        stopped = "stopped" if st["col_mode"] == 2 else "monitor only"
+        self.collision_btn.setText(f"COLLISION from {where}, {g:.2f} g\n"
+                                   f"{stopped} · click to reset")
+        t = st["col_t_us"] / 1e6
+        if self.n and t < self.t_last - 1000:
+            t += 4294.967296
+        self.events.append((t, f"COLLISION {where}"))
+        if self.recorder and self.rec_start_t is not None:
+            self.event_list.addItem(f"{t - self.rec_start_t:6.1f} s  COLLISION {where}")
+            self.event_list.scrollToBottom()
+        if self.events_file:
+            self.events_writer.writerow([st["col_t_us"], st["col_a25"], st["col_vib"], where,
+                                         COLLISION_MODES[st["col_mode"]]])
+            self.events_file.flush()
+        QtWidgets.QApplication.beep()
+
+    def acknowledge_collision(self):
+        self.col_alert = False
+        self.link.send("R")
+
+    def send_thresholds(self):
+        cmd = f"T {self.col_a25.value()} {self.col_vib.value()}"
+        if self.col_a25_turn.isEnabled():
+            cmd += f" {self.col_a25_turn.value()} {self.col_vib_turn.value()}"
+        self.link.send(cmd)
+        for box in (self.col_a25, self.col_vib, *self.turn_row):
+            box.clearFocus()
 
     # Driving ------------------------------------------------------------------
 
@@ -834,13 +966,16 @@ class Window(QtWidgets.QMainWindow):
                 p.removeItem(line)
         for t_ev, name in self.events[len(self.marked):]:
             lines = []
+            hit = name.startswith("COLLISION")
+            color = "#d92d20" if hit else th["warn"]
             for p in self.plot_items:
                 first = p is self.plot_items[0]
                 line = pg.InfiniteLine(pos=t_ev - self.t_last, angle=90,
                                        label=(name or "none") if first else None,
-                                       pen=pg.mkPen(th["warn"], width=1,
-                                                    style=QtCore.Qt.DashLine),
-                                       labelOpts={"position": 0.92, "color": th["warn"]})
+                                       pen=pg.mkPen(color, width=2 if hit else 1,
+                                                    style=QtCore.Qt.SolidLine if hit
+                                                    else QtCore.Qt.DashLine),
+                                       labelOpts={"position": 0.92, "color": color})
                 p.addItem(line)
                 lines.append(line)
             self.markers.append((t_ev, name, lines))
@@ -895,10 +1030,20 @@ class Window(QtWidgets.QMainWindow):
             self.rec_count = 0
             self.rec_start_t = self.t_last
             self.event_list.clear()
+            # A label left over from the last recording would mislabel this one.
+            self.label = ""
+            self.label_now.setText("Label: none")
+            # Collisions the robot detects go into a file next to the data.
+            self.events_file = open(path[:-4] + ".events.csv", "w", newline="")
+            self.events_writer = csv.writer(self.events_file)
+            self.events_writer.writerow(["t_us", "a25_mg", "vib_mg", "hit_from", "mode"])
             self.rec_btn.setText(f"Stop  ({os.path.basename(path)})")
         elif self.recorder:
             self.recorder = None
             self.rec_file.close()
+            if self.events_file:
+                self.events_file.close()
+                self.events_file = None
             self.statusBar().showMessage(f"saved {self.rec_count} samples to "
                                          f"{self.rec_file.name}", 15000)
             self.rec_btn.setText("Record")

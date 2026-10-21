@@ -14,13 +14,15 @@ For every recording the tool computes, per sample:
   vib   RMS of the horizontal acceleration above that average, over 100 ms
         (g), how hard the chassis shakes
 and the context from the drive state: idle, starting (first 0.8 s of a
-move or of a direction change), driving, or stopping (0.6 s after the
-command went to stop, when a deceleration is expected).
+move or of a direction change), driving (straight), turning (spin or
+curve), or stopping (0.6 s after the command went to stop, when a
+deceleration is expected).
 
 An event is a stretch where a25 or vib crosses its threshold. The rule
 under test flags it as a collision when a threshold is crossed while
-driving; a jolt that follows a stop is braking, even if the event began
-while driving. Each
+driving or turning; a jolt that follows a stop is braking, even if the
+event began while driving. Turning has its own thresholds: the wheels scrub
+sideways and shake the robot, so vibration is not used there by default. Each
 event is matched with the label set in the app (or given with --label).
 The summary per label shows how well the features and the rule separate
 collisions from everything else.
@@ -111,6 +113,8 @@ def features(d):
             ctx[i] = "stopping"
         elif t[i] - last_change < START_S:
             ctx[i] = "starting"
+        elif c[1] != 0:
+            ctx[i] = "turning"
         else:
             ctx[i] = "driving"
     d["ctx"] = ctx
@@ -122,8 +126,11 @@ def sector(x, y):
     return SECTORS[int(((ang + 22.5) % 360) // 45)]
 
 
-def find_events(d, a25_thr, vib_thr):
-    hit = (d["a25"] > a25_thr) | (d["vib"] > vib_thr)
+def find_events(d, a25_thr, vib_thr, a25_turn=1.0, vib_turn=0.0):
+    """Events where a feature crosses a threshold; vib_turn 0 means unused."""
+    hit = (d["a25"] > min(a25_thr, a25_turn)) | (d["vib"] > vib_thr)
+    if vib_turn > 0:
+        hit |= d["vib"] > vib_turn
     events = []
     idx = np.where(hit)[0]
     if not len(idx):
@@ -138,11 +145,12 @@ def find_events(d, a25_thr, vib_thr):
         g = np.array(g)
         p = g[np.argmax(d["a25"][g])]
         ctx = d["ctx"][p]
-        driving_hit = g[d["ctx"][g] == "driving"]
+        drv = g[d["ctx"][g] == "driving"]
+        trn = g[d["ctx"][g] == "turning"]
         trig = []
-        if (d["a25"][driving_hit] > a25_thr).any():
+        if (d["a25"][drv] > a25_thr).any() or (d["a25"][trn] > a25_turn).any():
             trig.append("a25")
-        if (d["vib"][driving_hit] > vib_thr).any():
+        if (d["vib"][drv] > vib_thr).any() or (vib_turn > 0 and (d["vib"][trn] > vib_turn).any()):
             trig.append("vib")
         events.append({
             "t": d["t"][g[0]], "t_peak": d["t"][p], "dur": d["t"][g[-1]] - d["t"][g[0]],
@@ -218,6 +226,10 @@ def main():
     ap.add_argument("files", nargs="+")
     ap.add_argument("--a25", type=float, default=0.6, help="a25 threshold, g (0.6)")
     ap.add_argument("--vib", type=float, default=0.9, help="vibration threshold, g (0.9)")
+    ap.add_argument("--a25-turn", type=float, default=1.0,
+                    help="a25 threshold while turning, g (1.0)")
+    ap.add_argument("--vib-turn", type=float, default=0.0,
+                    help="vibration threshold while turning, g (0 = unused)")
     ap.add_argument("--label", action="append", default=[], metavar="FILE=LABEL",
                     help="label for events in a file recorded without labels")
     ap.add_argument("--plots", metavar="DIR", help="write one PNG per event")
@@ -231,6 +243,8 @@ def main():
     print(f"{'file':28} {'time':>7} {'dur':>5} {'a25':>5} {'vib':>5} {'|gz|':>5} "
           f"{'context':9} {'hit from':11} {'label':10} rule")
     for path in args.files:
+        if path.endswith(".events.csv"):
+            continue
         d = load(path)
         if d is None:
             continue
@@ -243,7 +257,7 @@ def main():
         note = f", {d['bad']} corrupted samples dropped" if d["bad"] else ""
         print(f"{os.path.basename(path)}: {d['t'][-1]:.1f} s, driving 99th percentile "
               f"a25 {base_a25:.2f} g, vib {base_vib:.2f} g{note}")
-        for ev in find_events(d, args.a25, args.vib):
+        for ev in find_events(d, args.a25, args.vib, args.a25_turn, args.vib_turn):
             ev["label"] = match_label(ev, windows, default)
             summary[ev["label"]].append(ev)
             print(f"{'':28} {ev['t']:7.2f} {ev['dur']:5.2f} {ev['a25']:5.2f} {ev['vib']:5.2f} "
