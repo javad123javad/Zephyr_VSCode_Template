@@ -41,7 +41,11 @@ STATUS_PARTS = [
     ("<BBHHHHHII", ["col_mode", "col_sector", "col_a25_thr", "col_vib_thr", "col_a25",
                     "col_vib", "res2", "col_count", "col_t_us"]),  # 0.8.0
     ("<HH", ["col_a25_turn_thr", "col_vib_turn_thr"]),   # 0.8.1
+    ("<BBHHHHHHHII", ["col_acting", "imu_col_sector", "imu_a25_thr", "imu_vib_thr",
+                      "imu_a25_turn_thr", "imu_turn_dps", "imu_col_a25", "imu_col_vib",
+                      "res3", "imu_col_count", "imu_col_t_us"]),   # 0.9.0
 ]
+DETECTORS = ["drive context", "IMU only"]
 STATUS_MIN = struct.calcsize(STATUS_PARTS[0][0])
 SECTORS = ["front", "front-left", "left", "back-left", "back", "back-right", "right",
            "front-right"]
@@ -507,42 +511,64 @@ class Window(QtWidgets.QMainWindow):
         self.collision_btn.setFocusPolicy(QtCore.Qt.NoFocus)
         self.collision_btn.setProperty("alert", False)
         side.addWidget(self.collision_btn)
-        det = QtWidgets.QHBoxLayout()
-        det.addWidget(QtWidgets.QLabel("Detect"))
+        box = QtWidgets.QGroupBox("Collision detection")
+        grid = QtWidgets.QGridLayout(box)
+        grid.setHorizontalSpacing(6)
+        grid.setVerticalSpacing(4)
         self.col_mode = QtWidgets.QComboBox()
         self.col_mode.addItems(COLLISION_MODES)
-        self.col_mode.setFocusPolicy(QtCore.Qt.NoFocus)
         self.col_mode.setToolTip("Off: no detection. Monitor: report only, keep driving.\n"
-                                 "Stop: stop the motors until Reset.")
+                                 "Stop: the acting detector stops the motors until Reset.")
         self.col_mode.activated.connect(lambda i: self.link.send(f"M {i}"))
-        det.addWidget(self.col_mode, 1)
-        self.col_a25 = QtWidgets.QSpinBox(minimum=100, maximum=4000, singleStep=50,
-                                          suffix=" mg")
-        self.col_vib = QtWidgets.QSpinBox(minimum=100, maximum=4000, singleStep=50,
-                                          suffix=" mg")
-        turn = QtWidgets.QHBoxLayout()
-        turn.addWidget(QtWidgets.QLabel("Turning"))
-        turn.addStretch(1)
-        self.col_a25_turn = QtWidgets.QSpinBox(minimum=100, maximum=4000, singleStep=50,
-                                               suffix=" mg")
-        self.col_vib_turn = QtWidgets.QSpinBox(minimum=0, maximum=4000, singleStep=50,
-                                               suffix=" mg", specialValueText="off")
-        for box, row, tip in (
-                (self.col_a25, det, "a25 threshold: horizontal acceleration over 25 ms"),
-                (self.col_vib, det, "vibration threshold: RMS over 100 ms"),
-                (self.col_a25_turn, turn, "a25 threshold while spinning or curving"),
-                (self.col_vib_turn, turn, "vibration threshold while turning; off: unused,\n"
-                                          "the wheels scrub and shake the robot")):
-            box.setToolTip(tip)
-            box.setFocusPolicy(QtCore.Qt.ClickFocus)
-            box.editingFinished.connect(self.send_thresholds)
-            row.addWidget(box)
-        side.addLayout(det)
-        side.addLayout(turn)
+        self.col_acting = QtWidgets.QComboBox()
+        self.col_acting.addItems(["drive acts", "IMU acts"])
+        self.col_acting.setToolTip("Which detector stops the robot; the other one only\n"
+                                   "reports (purple markers), for comparison.")
+        self.col_acting.activated.connect(lambda i: self.link.send(f"C {i}"))
+        for combo in (self.col_mode, self.col_acting):
+            combo.setFocusPolicy(QtCore.Qt.NoFocus)
+        grid.addWidget(self.col_mode, 0, 0, 1, 2)
+        grid.addWidget(self.col_acting, 0, 2)
+
+        def spin(minimum, suffix=" mg", off=False, step=50):
+            b = QtWidgets.QSpinBox(minimum=minimum, maximum=4000 if suffix == " mg" else 500,
+                                   singleStep=step, suffix=suffix)
+            if off:
+                b.setSpecialValueText("off")
+            b.setFocusPolicy(QtCore.Qt.ClickFocus)
+            b.editingFinished.connect(self.send_thresholds)
+            return b
+
+        self.col_a25, self.col_vib = spin(100), spin(100)
+        self.col_a25_turn, self.col_vib_turn = spin(100), spin(0, off=True)
+        self.imu_a25, self.imu_vib = spin(100), spin(0, off=True)
+        self.imu_a25_turn, self.imu_turn_dps = spin(100), spin(1, " °/s", step=1)
+        rows = [("Straight", self.col_a25, self.col_vib,
+                 "Drive context, driving straight: a25 (25 ms average) and vibration"),
+                ("Turning", self.col_a25_turn, self.col_vib_turn,
+                 "Drive context, spin or curve: the wheels scrub and shake the robot"),
+                ("IMU only", self.imu_a25, self.imu_vib,
+                 "IMU-only detector, not turning: braking is excluded only by these"),
+                ("IMU turn", self.imu_a25_turn, self.imu_turn_dps,
+                 "IMU-only detector: a25 while turning, and the yaw rate over 250 ms\n"
+                 "above which the robot counts as turning (held 0.5 s)")]
+        for r, (name, a, b, tip) in enumerate(rows, start=1):
+            lab = QtWidgets.QLabel(name)
+            for w in (lab, a, b):
+                w.setToolTip(tip)
+            grid.addWidget(lab, r, 0)
+            grid.addWidget(a, r, 1)
+            grid.addWidget(b, r, 2)
+        self.col_counts_label = QtWidgets.QLabel("detected: –")
+        self.col_counts_label.setObjectName("muted")
+        grid.addWidget(self.col_counts_label, len(rows) + 1, 0, 1, 3)
+        side.addWidget(box)
         self.turn_row = [self.col_a25_turn, self.col_vib_turn]
+        self.imu_row = [self.col_acting, self.imu_a25, self.imu_vib, self.imu_a25_turn,
+                        self.imu_turn_dps]
         self.drive_pad = DrivePad()
         self.drive_pad.pressed.connect(self.pad_pressed)
-        self.col_count = None      # robot's collision count when last seen
+        self.col_counts = [None, None]  # per detector, when last seen
         self.col_alert = False     # new collision not yet acknowledged
         self.events_file = None
         side.addWidget(self.drive_pad)
@@ -778,23 +804,41 @@ class Window(QtWidgets.QMainWindow):
         if "col_count" not in st:
             self.collision_btn.setText("Collision detection needs firmware 0.8")
             return
-        for box, key in ((self.col_mode, "col_mode"),):
-            if box.currentIndex() != st[key]:
-                box.setCurrentIndex(st[key])
-        for box in self.turn_row:
-            box.setEnabled("col_a25_turn_thr" in st)
+        for combo, key in ((self.col_mode, "col_mode"), (self.col_acting, "col_acting")):
+            if key in st and combo.currentIndex() != st[key]:
+                combo.setCurrentIndex(st[key])
+        for w in self.turn_row:
+            w.setEnabled("col_a25_turn_thr" in st)
+        for w in self.imu_row:
+            w.setEnabled("imu_col_count" in st)
         for box, key in ((self.col_a25, "col_a25_thr"), (self.col_vib, "col_vib_thr"),
                          (self.col_a25_turn, "col_a25_turn_thr"),
-                         (self.col_vib_turn, "col_vib_turn_thr")):
-            if key not in st:
-                continue
-            if not box.hasFocus() and box.value() != st[key]:
+                         (self.col_vib_turn, "col_vib_turn_thr"),
+                         (self.imu_a25, "imu_a25_thr"), (self.imu_vib, "imu_vib_thr"),
+                         (self.imu_a25_turn, "imu_a25_turn_thr"),
+                         (self.imu_turn_dps, "imu_turn_dps")):
+            if key in st and not box.hasFocus() and box.value() != st[key]:
                 box.blockSignals(True)
                 box.setValue(st[key])
                 box.blockSignals(False)
-        if self.col_count is not None and st["col_count"] > self.col_count:
-            self.new_collision(st)
-        self.col_count = st["col_count"]
+
+        acting = st.get("col_acting", 0)
+        found = [("col_count", "col_t_us", "col_a25", "col_vib", "col_sector"),
+                 ("imu_col_count", "imu_col_t_us", "imu_col_a25", "imu_col_vib",
+                  "imu_col_sector")]
+        for det, keys in enumerate(found):
+            if keys[0] not in st:
+                continue
+            last = self.col_counts[det]
+            if last is not None and st[keys[0]] > last:
+                self.new_collision(det, det == acting, st["col_mode"],
+                                   *(st[k] for k in keys[1:]))
+            self.col_counts[det] = st[keys[0]]
+        counts = [c for c in self.col_counts if c is not None]
+        if len(counts) == 2:
+            self.col_counts_label.setText(f"detected since boot: drive {counts[0]} · "
+                                          f"IMU only {counts[1]}")
+
         latched = bool(st["inhibit"] & 4)
         alert = self.col_alert or latched
         if alert != self.collision_btn.property("alert"):
@@ -802,28 +846,32 @@ class Window(QtWidgets.QMainWindow):
             self.collision_btn.style().unpolish(self.collision_btn)
             self.collision_btn.style().polish(self.collision_btn)
         if not alert:
-            n = st["col_count"]
-            self.collision_btn.setText(f"No collision ({n} since boot)" if n else "No collision")
+            self.collision_btn.setText("No collision")
 
-    def new_collision(self, st):
-        where = SECTORS[st["col_sector"] % len(SECTORS)]
-        g = st["col_a25"] / 1000
-        self.col_alert = True
-        stopped = "stopped" if st["col_mode"] == 2 else "monitor only"
-        self.collision_btn.setText(f"COLLISION from {where}, {g:.2f} g\n"
-                                   f"{stopped} · click to reset")
-        t = st["col_t_us"] / 1e6
+    def new_collision(self, det, acting, mode, t_us, a25, vib, sector):
+        where = SECTORS[sector % len(SECTORS)]
+        g = a25 / 1000
+        t = t_us / 1e6
         if self.n and t < self.t_last - 1000:
             t += 4294.967296
-        self.events.append((t, f"COLLISION {where}"))
+        if acting:
+            self.col_alert = True
+            stopped = "stopped" if mode == 2 else "monitor only"
+            self.collision_btn.setText(f"COLLISION from {where}, {g:.2f} g\n"
+                                       f"{('drive', 'IMU')[det]} · {stopped} · click: reset")
+            name = f"COLLISION {where}"
+            QtWidgets.QApplication.beep()
+        else:
+            # The other detector, for comparison only.
+            name = f"SHADOW {DETECTORS[det]}: {where}"
+        self.events.append((t, name))
         if self.recorder and self.rec_start_t is not None:
-            self.event_list.addItem(f"{t - self.rec_start_t:6.1f} s  COLLISION {where}")
+            self.event_list.addItem(f"{t - self.rec_start_t:6.1f} s  {name}")
             self.event_list.scrollToBottom()
         if self.events_file:
-            self.events_writer.writerow([st["col_t_us"], st["col_a25"], st["col_vib"], where,
-                                         COLLISION_MODES[st["col_mode"]]])
+            self.events_writer.writerow([t_us, a25, vib, where, COLLISION_MODES[mode],
+                                         DETECTORS[det], "acted" if acting else "shadow"])
             self.events_file.flush()
-        QtWidgets.QApplication.beep()
 
     def acknowledge_collision(self):
         self.col_alert = False
@@ -834,7 +882,10 @@ class Window(QtWidgets.QMainWindow):
         if self.col_a25_turn.isEnabled():
             cmd += f" {self.col_a25_turn.value()} {self.col_vib_turn.value()}"
         self.link.send(cmd)
-        for box in (self.col_a25, self.col_vib, *self.turn_row):
+        if self.imu_a25.isEnabled():
+            self.link.send(f"I {self.imu_a25.value()} {self.imu_vib.value()} "
+                           f"{self.imu_a25_turn.value()} {self.imu_turn_dps.value()}")
+        for box in (self.col_a25, self.col_vib, *self.turn_row, *self.imu_row[1:]):
             box.clearFocus()
 
     # Driving ------------------------------------------------------------------
@@ -967,7 +1018,9 @@ class Window(QtWidgets.QMainWindow):
         for t_ev, name in self.events[len(self.marked):]:
             lines = []
             hit = name.startswith("COLLISION")
-            color = "#d92d20" if hit else th["warn"]
+            shadow = name.startswith("SHADOW")
+            color = "#d92d20" if hit else "#7c3aed" if shadow else th["warn"]
+            hit = hit or shadow
             for p in self.plot_items:
                 first = p is self.plot_items[0]
                 line = pg.InfiniteLine(pos=t_ev - self.t_last, angle=90,
@@ -975,7 +1028,8 @@ class Window(QtWidgets.QMainWindow):
                                        pen=pg.mkPen(color, width=2 if hit else 1,
                                                     style=QtCore.Qt.SolidLine if hit
                                                     else QtCore.Qt.DashLine),
-                                       labelOpts={"position": 0.92, "color": color})
+                                       labelOpts={"position": 0.78 if shadow else 0.92,
+                                                  "color": color})
                 p.addItem(line)
                 lines.append(line)
             self.markers.append((t_ev, name, lines))
@@ -1036,7 +1090,8 @@ class Window(QtWidgets.QMainWindow):
             # Collisions the robot detects go into a file next to the data.
             self.events_file = open(path[:-4] + ".events.csv", "w", newline="")
             self.events_writer = csv.writer(self.events_file)
-            self.events_writer.writerow(["t_us", "a25_mg", "vib_mg", "hit_from", "mode"])
+            self.events_writer.writerow(["t_us", "a25_mg", "vib_mg", "hit_from", "mode",
+                                         "detector", "action"])
             self.rec_btn.setText(f"Stop  ({os.path.basename(path)})")
         elif self.recorder:
             self.recorder = None

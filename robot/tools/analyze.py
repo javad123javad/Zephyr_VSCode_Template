@@ -121,13 +121,36 @@ def features(d):
     return d
 
 
+def imu_turning(d, turn_dps=10.0, hold_s=0.5):
+    """Turning from the gyro alone: |yaw rate| over 250 ms above turn_dps, held."""
+    gz = d["gz"] - np.median(d["gz"][:int(RATE)])
+    # Causal like the firmware: only past samples. A centred window would see
+    # the yaw twist of a collision before the impact itself.
+    n = int(0.25 * RATE)
+    raw = np.abs(np.convolve(gz, np.ones(n) / n)[:len(gz)]) > turn_dps
+    out = np.zeros(len(raw), dtype=bool)
+    last = -1e9
+    for i, r in enumerate(raw):
+        if r:
+            last = d["t"][i]
+        out[i] = d["t"][i] - last <= hold_s
+    return out
+
+
 def sector(x, y):
     ang = math.degrees(math.atan2(y, x)) % 360
     return SECTORS[int(((ang + 22.5) % 360) // 45)]
 
 
-def find_events(d, a25_thr, vib_thr, a25_turn=1.0, vib_turn=0.0):
-    """Events where a feature crosses a threshold; vib_turn 0 means unused."""
+def find_events(d, a25_thr, vib_thr, a25_turn=1.0, vib_turn=0.0, imu=None):
+    """Events where a feature crosses a threshold; vib_turn 0 means unused.
+
+    With imu = (a25, vib, a25_turn, turn_dps) the context comes from the IMU
+    alone, as the firmware's IMU-only detector does: no drive state, turning
+    from the gyro, braking excluded only by the thresholds.
+    """
+    if imu is not None:
+        return find_events_imu(d, *imu)
     hit = (d["a25"] > min(a25_thr, a25_turn)) | (d["vib"] > vib_thr)
     if vib_turn > 0:
         hit |= d["vib"] > vib_turn
@@ -162,6 +185,43 @@ def find_events(d, a25_thr, vib_thr, a25_turn=1.0, vib_turn=0.0):
             "hit_from": sector(-d["a25x"][g[0]:g[0] + 8].mean(),
                                -d["a25y"][g[0]:g[0] + 8].mean()),
             "ctx": ctx, "collision": bool(trig), "trigger": "+".join(trig) or "-",
+        })
+    return events
+
+
+def find_events_imu(d, a25_thr, vib_thr, a25_turn, turn_dps):
+    turning = imu_turning(d, turn_dps)
+    vib_hit = (d["vib"] > vib_thr) if vib_thr > 0 else np.zeros(len(d["t"]), dtype=bool)
+    rule = np.where(turning, d["a25"] > a25_turn, (d["a25"] > a25_thr) | vib_hit)
+    cand = rule | (d["a25"] > min(a25_thr, a25_turn) * 0.8) | vib_hit
+    events = []
+    idx = np.flatnonzero(cand)
+    if not len(idx):
+        return events
+    groups = [[idx[0]]]
+    for i in idx[1:]:
+        if d["t"][i] - d["t"][groups[-1][-1]] <= MERGE_S:
+            groups[-1].append(i)
+        else:
+            groups.append([i])
+    for g in groups:
+        g = np.array(g)
+        hits = g[rule[g]]
+        first = hits[0] if len(hits) else g[0]
+        p = g[np.argmax(d["a25"][g])]
+        trig = []
+        if (d["a25"][hits] > np.where(turning[hits], a25_turn, a25_thr)).any():
+            trig.append("a25")
+        if (vib_hit[hits] & ~turning[hits]).any():
+            trig.append("vib")
+        events.append({
+            "t": d["t"][g[0]], "t_peak": d["t"][p], "dur": d["t"][g[-1]] - d["t"][g[0]],
+            "a25": float(d["a25"][g].max()), "vib": float(d["vib"][g].max()),
+            "gz": float(np.abs(d["gz"][g]).max()),
+            "hit_from": sector(-d["a25x"][first:first + 8].mean(),
+                               -d["a25y"][first:first + 8].mean()),
+            "ctx": "imu-turn" if turning[p] else "imu",
+            "collision": bool(len(hits)), "trigger": "+".join(trig) or "-",
         })
     return events
 
@@ -230,6 +290,12 @@ def main():
                     help="a25 threshold while turning, g (1.0)")
     ap.add_argument("--vib-turn", type=float, default=0.0,
                     help="vibration threshold while turning, g (0 = unused)")
+    ap.add_argument("--context", choices=["drive", "imu"], default="drive",
+                    help="context from the drive state (default) or from the IMU alone")
+    ap.add_argument("--imu", type=float, nargs=4, default=[0.9, 0.9, 1.0, 10.0],
+                    metavar=("A25", "VIB", "A25_TURN", "TURN_DPS"),
+                    help="IMU-only thresholds in g and the turning yaw rate in deg/s "
+                         "(0.9 0.9 1.0 10)")
     ap.add_argument("--label", action="append", default=[], metavar="FILE=LABEL",
                     help="label for events in a file recorded without labels")
     ap.add_argument("--plots", metavar="DIR", help="write one PNG per event")
@@ -257,7 +323,8 @@ def main():
         note = f", {d['bad']} corrupted samples dropped" if d["bad"] else ""
         print(f"{os.path.basename(path)}: {d['t'][-1]:.1f} s, driving 99th percentile "
               f"a25 {base_a25:.2f} g, vib {base_vib:.2f} g{note}")
-        for ev in find_events(d, args.a25, args.vib, args.a25_turn, args.vib_turn):
+        imu = args.imu if args.context == "imu" else None
+        for ev in find_events(d, args.a25, args.vib, args.a25_turn, args.vib_turn, imu):
             ev["label"] = match_label(ev, windows, default)
             summary[ev["label"]].append(ev)
             print(f"{'':28} {ev['t']:7.2f} {ev['dur']:5.2f} {ev['a25']:5.2f} {ev['vib']:5.2f} "

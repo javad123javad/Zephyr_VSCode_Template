@@ -36,7 +36,9 @@ def robot_events(path):
     if not os.path.exists(side):
         return []
     with open(side, newline="") as f:
-        return [(int(r["t_us"]), f"robot: {r['hit_from']} {int(r['a25_mg']) / 1000:.2f} g")
+        return [(int(r["t_us"]), f"robot{' ' + r['detector'] if r.get('detector') else ''}"
+                 f"{' (shadow)' if r.get('action') == 'shadow' else ''}: "
+                 f"{r['hit_from']} {int(r['a25_mg']) / 1000:.2f} g")
                 for r in csv.DictReader(f)]
 
 
@@ -78,6 +80,22 @@ class Viewer(QtWidgets.QMainWindow):
         form.addRow("vib threshold", self.vib)
         form.addRow("a25 turning", self.a25_turn)
         form.addRow("vib turning", self.vib_turn)
+        self.context = QtWidgets.QComboBox()
+        self.context.addItems(["drive context", "IMU only"])
+        self.context.setToolTip("IMU only: no drive state, turning from the gyro,\n"
+                                "the thresholds below")
+        self.context.currentIndexChanged.connect(self.recompute)
+        form.addRow("Context", self.context)
+        self.imu_boxes = []
+        for name, val, suffix, maxi in (("IMU a25", 0.9, " g", 8), ("IMU vib", 0.9, " g", 8),
+                                        ("IMU a25 turn", 1.0, " g", 8),
+                                        ("IMU turn rate", 10, " °/s", 200)):
+            b = QtWidgets.QDoubleSpinBox(minimum=0, maximum=maxi, value=val, suffix=suffix,
+                                         singleStep=0.05 if suffix == " g" else 1,
+                                         decimals=2 if suffix == " g" else 0)
+            b.valueChanged.connect(self.recompute)
+            form.addRow(name, b)
+            self.imu_boxes.append(b)
         self.label_override = QtWidgets.QLineEdit(placeholderText="use labels in the file")
         self.label_override.setToolTip("Label all events of this file, for recordings\n"
                                        "whose labels are missing or wrong")
@@ -229,8 +247,11 @@ class Viewer(QtWidgets.QMainWindow):
 
         # Events of the analysis rule.
         override = self.label_override.text().strip()
+        imu = [b.value() for b in self.imu_boxes] if self.context.currentIndex() == 1 else None
+        for b in self.imu_boxes:
+            b.setEnabled(imu is not None)
         self.events = analyze.find_events(d, self.a25.value(), self.vib.value(),
-                                          self.a25_turn.value(), self.vib_turn.value())
+                                          self.a25_turn.value(), self.vib_turn.value(), imu)
         self.table.setRowCount(len(self.events))
         for row, ev in enumerate(self.events):
             ev["label"] = override or analyze.match_label(ev, windows, "")
