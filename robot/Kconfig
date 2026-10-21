@@ -28,9 +28,58 @@ config ROBOT_AP_FALLBACK_SEC
 	  How long the robot tries to join CONFIG_ROBOT_WIFI_SSID before it
 	  opens its own network. Without a configured SSID it opens at once.
 
-config ROBOT_HTTP_PORT
-	int "Web control port"
-	default 80
+config ROBOT_IMU_RATE
+	int "IMU sampling rate (Hz)"
+	default 400
+	help
+	  ADXL345 output data rate: 100, 200, 400 or 800.
+
+config ROBOT_LINK_PORT
+	int "UDP port of the PC link"
+	default 4244
+	help
+	  Drive commands, status and IMU data are exchanged with the PC app
+	  on this port; see src/link.h.
+
+config ROBOT_IMU_ACCEL_OFS_X
+	int "Accelerometer zero-g reading, sensor X (mg)"
+	default 0
+	help
+	  What the ADXL345 reads at zero g on its own X axis, subtracted from
+	  every sample. Measure it with the module level, then upside down:
+	  the offset is the mean of the two readings. The Y and Z options
+	  work the same way.
+
+config ROBOT_IMU_ACCEL_OFS_Y
+	int "Accelerometer zero-g reading, sensor Y (mg)"
+	default 0
+
+config ROBOT_IMU_ACCEL_OFS_Z
+	int "Accelerometer zero-g reading, sensor Z (mg)"
+	default 0
+
+config ROBOT_IMU_GYRO_BIAS_X
+	int "Gyro bias at start-up, sensor X (milli-deg/s)"
+	default 0
+	help
+	  Rotation rate the ITG3205 reads at rest, used until the robot has
+	  measured it itself after standing still. The Y and Z options work
+	  the same way.
+
+config ROBOT_IMU_GYRO_BIAS_Y
+	int "Gyro bias at start-up, sensor Y (milli-deg/s)"
+	default 0
+
+config ROBOT_IMU_GYRO_BIAS_Z
+	int "Gyro bias at start-up, sensor Z (milli-deg/s)"
+	default 0
+
+config ROBOT_IMU_INT2
+	bool "IMU module routes A-INT to the ADXL345 INT2 output"
+	help
+	  GY-85 modules differ in which ADXL345 interrupt output reaches the
+	  A-INT pin. Enable this if "robot imu" counts every sample as an
+	  interrupt timeout.
 
 config ROBOT_BATTERY
 	bool "Battery monitoring"

@@ -75,6 +75,7 @@ static K_MUTEX_DEFINE(drive_lock);
 static uint32_t inhibit;
 static int32_t speed_limit = MOTOR_SPEED_MAX;
 static int64_t last_active;
+static struct drive_snapshot command;
 
 static void side_apply(const struct side *side)
 {
@@ -239,6 +240,9 @@ void drive_mix(int32_t throttle, int32_t turn, int32_t speed, uint32_t ms)
 		right = throttle * ((turn > 0) ? inner : speed);
 	}
 
+	command.throttle = (int8_t)throttle;
+	command.turn = (int8_t)turn;
+	command.speed = (uint8_t)speed;
 	drive_sides(left, right);
 
 	if ((ms > 0U) && ((left != 0) || (right != 0))) {
@@ -293,6 +297,18 @@ void drive_speed_limit_set(int32_t limit)
 {
 	(void)k_mutex_lock(&drive_lock, K_FOREVER);
 	speed_limit = CLAMP(limit, DRIVE_SPEED_MIN, MOTOR_SPEED_MAX);
+	(void)k_mutex_unlock(&drive_lock);
+}
+
+void drive_snapshot_get(struct drive_snapshot *snap)
+{
+	(void)k_mutex_lock(&drive_lock, K_FOREVER);
+
+	*snap = command;
+	snap->left = (int8_t)sides[0].speed;
+	snap->right = (int8_t)sides[1].speed;
+	snap->inhibit = (uint8_t)inhibit;
+
 	(void)k_mutex_unlock(&drive_lock);
 }
 

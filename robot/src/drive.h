@@ -93,6 +93,32 @@ uint32_t drive_inhibit_get(void);
  */
 void drive_speed_limit_set(int32_t limit);
 
+/** What the drive is doing, for logging alongside sensor data. */
+struct drive_snapshot {
+	/** Last commanded throttle: 1 forward, -1 backward, 0 none. */
+	int8_t throttle;
+	/** Last commanded turn: 1 right, -1 left, 0 none. */
+	int8_t turn;
+	/** Last commanded speed in percent. */
+	uint8_t speed;
+	/** Actual left side speed, -100..100, including ramp and pauses. */
+	int8_t left;
+	/** Actual right side speed, -100..100. */
+	int8_t right;
+	/** Active enum drive_inhibit bits. */
+	uint8_t inhibit;
+};
+
+/**
+ * @brief Get the current command and side speeds.
+ *
+ * The command is the last drive_mix() request; it stays set after the
+ * auto-stop, while the side speeds show what the motors actually do.
+ *
+ * @param snap Filled with the current state
+ */
+void drive_snapshot_get(struct drive_snapshot *snap);
+
 /**
  * @brief Get how long the motors have been stopped.
  *

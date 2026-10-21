@@ -1,0 +1,5 @@
+PySide6
+pyqtgraph
+numpy
+# Optional, for gamepad driving.
+pygame

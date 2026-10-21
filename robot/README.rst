@@ -39,7 +39,7 @@ Own Network
 
 When the robot cannot join ``CONFIG_ROBOT_WIFI_SSID`` within 20 s, or no SSID
 is set, it opens its own WPA2 network ``robot-xxxx`` (last MAC bytes). Join it
-and open http://192.168.4.1/ or http://robot.local/. Set its password in
+and point the PC app at 192.168.4.1 or robot.local. Set its password in
 ``wifi.conf``; without one the robot never opens a network::
 
    CONFIG_ROBOT_AP_PSK="at-least-8-characters"
@@ -86,9 +86,9 @@ To calibrate, compare ``robot status`` with a multimeter and set
 multimeter / shown x 1000. Different resistors are set with the
 ``CONFIG_ROBOT_BATT_*_DIV_*`` options.
 
-Blocked driving is shown on the web page with its reason. A low battery
+Blocked driving is shown in the PC app with its reason. A low battery
 clears by itself when the voltage recovers; a detected collision is latched
-until the page's Reset button, ``robot reset`` or a ``reset`` message.
+until the app's Reset button, ``robot reset`` or an ``R`` command.
 
 Building and Flashing
 *********************
@@ -164,34 +164,36 @@ Shell Commands
    robot status        # battery voltages and inhibit state
    robot reset         # clear a latched inhibit (collision)
 
-Web Control
-***********
+PC App
+******
 
-After joining the network the robot logs its address::
+The robot has no web server; a Python app on the PC drives it, plots the IMU
+live and records labelled data:
 
-   <inf> wifi: Open http://robot.local/ or http://192.168.1.42/ to drive the robot
+.. code-block:: console
 
-Open either one in a browser. ``robot.local`` is answered over mDNS; Linux
-needs Avahi and Windows 10 or later resolves it natively.
+   pip install -r workspace/robot/tools/requirements.txt
+   python3 workspace/robot/tools/robot_app.py robot.local
 
-* Arrow keys drive; up or down together with left or right drives a curve with
-  the inner side slowed to 30 %. Left or right alone spins in place.
-* The slider sets the speed (30-100 %, remembered by the browser). Hold Shift
-  for half of it.
-* On a phone, hold the on-screen arrows; two fingers give a curve.
+* Arrow keys drive; up or down together with left or right drives a curve
+  with the inner side slowed to 30 %. Left or right alone spins in place.
+  The slider sets the speed, Shift halves it.
+* A gamepad's left stick drives too (needs pygame): its direction picks the
+  move, how far it is pushed sets the speed.
+* The plots show acceleration and rotation rate in the robot frame (x
+  forward, y left, z up) and both side speeds over the last 5 s.
+* Record writes a CSV in the current directory. Label what happens next with
+  the buttons or keys: C collision, B brake, V reverse, P push, L lift,
+  S bump, N none.
 
 Acceleration is ramped, slowing down and stopping are immediate. A side that
-changes direction coasts for about 150 ms before starting the other way. Each command
-runs for 700 ms and the page repeats it every 150 ms while a key is held, so
-the robot stops when the key is released, the tab loses focus or the
-connection drops.
+changes direction coasts for about 150 ms before starting the other way. Each
+drive command runs for 700 ms and the app repeats it every 150 ms while a key
+is held; the robot stops when the key is released, the window loses focus,
+the app closes or the link drops.
 
-The page keeps a WebSocket open on ``/ws`` and sends
-``<throttle> <turn> <speed>`` text messages, for example ``1 -1 80`` for a
-forward-left curve at 80 %. The robot answers with a status message twice a
-second (signal strength for now). Closing the socket stops the robot, and a
-new connection takes over from an old one, so a phone that reconnects is not
-locked out. While the socket is down the page posts the same text to
-``/drive``, which also works from the command line::
+The link is a UDP session on port 4244, described in ``src/link.h``: text
+commands from the PC (``S`` keep alive, ``D <throttle> <turn> <speed>``,
+``R`` reset, ``X`` end) and binary IMU and status packets from the robot.
+``tools/imu_log.py`` is a command-line recorder for the same stream.
 
-   curl -d "1 0 60" http://robot.local/drive

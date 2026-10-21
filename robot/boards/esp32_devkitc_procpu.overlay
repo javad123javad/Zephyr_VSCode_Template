@@ -21,6 +21,8 @@
 		/* M1-1, M1-2, M2-1, M2-2, M3-1, M3-2, M4-1, M4-2 */
 		pwms = MOTOR_PWM(0), MOTOR_PWM(1), MOTOR_PWM(2), MOTOR_PWM(3),
 		       MOTOR_PWM(4), MOTOR_PWM(5), MOTOR_PWM(6), MOTOR_PWM(7);
+		/* GY-85 A-INT: ADXL345 data ready. */
+		imu-int-gpios = <&gpio0 19 GPIO_ACTIVE_HIGH>;
 		/* Motor pack on GPIO34, board cell on GPIO35, both via dividers. */
 		io-channels = <&adc0 6>, <&adc0 7>;
 	};
@@ -53,6 +55,15 @@
 };
 
 &pinctrl {
+	i2c0_imu: i2c0_imu {
+		group1 {
+			pinmux = <I2C0_SDA_GPIO23>, <I2C0_SCL_GPIO22>;
+			bias-pull-up;
+			drive-open-drain;
+			output-high;
+		};
+	};
+
 	ledc0_motors: ledc0_motors {
 		group1 {
 			pinmux = <LEDC_CH0_GPIO13>, <LEDC_CH1_GPIO2>,
@@ -112,6 +123,20 @@
 		timer = <0>;
 		inverted;
 	};
+};
+
+/* GY-85 IMU on I2C0: SDA on GPIO23, SCL on GPIO22. */
+&i2c0 {
+	clock-frequency = <I2C_BITRATE_FAST>;
+	sda-gpios = <&gpio0 23 GPIO_OPEN_DRAIN>;
+	scl-gpios = <&gpio0 22 GPIO_OPEN_DRAIN>;
+	pinctrl-0 = <&i2c0_imu>;
+	pinctrl-names = "default";
+};
+
+/* SPI3 is routed to GPIO5/18/19/23 on this board; the IMU uses GPIO19 and 23. */
+&spi3 {
+	status = "disabled";
 };
 
 /* SPI2 is routed to GPIO12/13/14/15 on this board; GPIO13/14 drive M1/M2. */

@@ -191,7 +191,7 @@ static void ap_on_work_handler(struct k_work *work)
 	ap_active = true;
 	(void)k_mutex_unlock(&wifi_lock);
 
-	LOG_INF("Own network \"%s\" is up: join it and open http://" AP_ADDR "/", ssid);
+	LOG_INF("Own network \"%s\" is up: join it and connect to " AP_ADDR, ssid);
 	ota_confirm();
 }
 
@@ -314,8 +314,7 @@ static void ipv4_event_handler(struct net_mgmt_event_callback *cb, uint64_t mgmt
 	ota_confirm();
 
 	if (net_addr_ntop(NET_AF_INET, addr, buf, sizeof(buf)) != NULL) {
-		LOG_INF("Open http://%s.local/ or http://%s/ to drive the robot",
-			CONFIG_NET_HOSTNAME, buf);
+		LOG_INF("Reachable as %s.local or %s", CONFIG_NET_HOSTNAME, buf);
 	}
 }
 

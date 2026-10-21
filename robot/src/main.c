@@ -10,11 +10,11 @@
 
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
-#include <zephyr/net/http/server.h>
 #include <zephyr/shell/shell.h>
 
 #include "battery.h"
 #include "drive.h"
+#include "imu.h"
 #include "motor.h"
 #include "wifi.h"
 
@@ -88,6 +88,39 @@ static int cmd_status(const struct shell *sh, size_t argc, char **argv)
 	return 0;
 }
 
+static int cmd_imu(const struct shell *sh, size_t argc, char **argv)
+{
+	struct imu_stats st;
+	struct imu_sample s;
+
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+
+	imu_get(&st, &s);
+
+	if (!st.accel_ok) {
+		shell_print(sh, "IMU not running");
+		return -ENODEV;
+	}
+
+	shell_print(sh, "%u Hz, %u samples, %u interrupt timeouts, %u dropped, gyro 0x%02x",
+		    st.rate_hz, st.samples, st.int_timeouts, st.dropped, st.gyro_addr);
+	shell_print(sh, "accel mg: %d %d %d", (s.accel[0] * IMU_ACCEL_UG_PER_LSB) / 1000,
+		    (s.accel[1] * IMU_ACCEL_UG_PER_LSB) / 1000,
+		    (s.accel[2] * IMU_ACCEL_UG_PER_LSB) / 1000);
+	shell_print(sh, "gyro bias (sensor axes) mdeg/s: %d %d %d, measured %u times",
+		    (st.gyro_bias_q4[0] * 1000000) / (16 * IMU_GYRO_LSB_PER_DPS_X1000),
+		    (st.gyro_bias_q4[1] * 1000000) / (16 * IMU_GYRO_LSB_PER_DPS_X1000),
+		    (st.gyro_bias_q4[2] * 1000000) / (16 * IMU_GYRO_LSB_PER_DPS_X1000),
+		    st.bias_updates);
+	shell_print(sh, "gyro deg/s x10: %d %d %d",
+		    (s.gyro[0] * 10000) / IMU_GYRO_LSB_PER_DPS_X1000,
+		    (s.gyro[1] * 10000) / IMU_GYRO_LSB_PER_DPS_X1000,
+		    (s.gyro[2] * 10000) / IMU_GYRO_LSB_PER_DPS_X1000);
+
+	return 0;
+}
+
 static int cmd_reset(const struct shell *sh, size_t argc, char **argv)
 {
 	ARG_UNUSED(sh);
@@ -106,6 +139,7 @@ SHELL_STATIC_SUBCMD_SET_CREATE(robot_cmds,
 	SHELL_CMD_ARG(right, NULL, "Spin right [ms, 0 = until stop]", cmd_drive, 1, 1),
 	SHELL_CMD(stop, NULL, "Stop all motors", cmd_drive),
 	SHELL_CMD(status, NULL, "Battery and inhibit state", cmd_status),
+	SHELL_CMD(imu, NULL, "IMU statistics and latest sample", cmd_imu),
 	SHELL_CMD(reset, NULL, "Clear a latched inhibit (collision)", cmd_reset),
 	SHELL_CMD_ARG(motor, NULL, "Drive one motor: <1-4> <fwd|rev|stop|-100..100>", cmd_motor, 3, 0),
 	SHELL_SUBCMD_SET_END);
@@ -125,14 +159,14 @@ int main(void)
 		LOG_ERR("Battery monitoring not started (%d)", err);
 	}
 
+	err = imu_start();
+	if (err != 0) {
+		LOG_ERR("IMU not started (%d)", err);
+	}
+
 	err = wifi_start();
 	if (err != 0) {
 		LOG_ERR("Wi-Fi not started (%d), shell control only", err);
-	}
-
-	err = http_server_start();
-	if (err != 0) {
-		LOG_ERR("Web server not started (%d)", err);
 	}
 
 	LOG_INF("Robot ready");
