@@ -50,6 +50,36 @@ moves the shared radio channel and briefly drops those devices. Once the
 station has an address and nobody is on the own network, the robot closes it.
 ``CONFIG_ROBOT_AP_FALLBACK_SEC`` sets the 20 s.
 
+Collision Detection
+*******************
+
+``doc/collision-detection.rst`` describes the method in full: the physics,
+every formula and constant, the measurements behind the thresholds and its
+limits.
+
+The robot runs the rule below on every IMU sample (``src/collision.c``).
+Modes, selectable in the app or with ``CONFIG_ROBOT_COLLISION_MODE``:
+
+* Stop (default): the motors stop within about 10 ms of the threshold being
+  crossed and driving stays blocked until Reset.
+* Monitor: the collision is reported, the robot keeps driving. Use it to
+  record test data.
+* Off.
+
+While turning (spin or curve) the robot uses its own thresholds: the
+skid-steer wheels scrub sideways and shake the robot as hard as a collision
+(spins reached 1.6 g of vibration, 0.67 g ``a25``), so only ``a25`` above
+1.0 g counts there by default. The turning thresholds are a separate row in
+the app and ``--a25-turn``/``--vib-turn`` in ``analyze.py``.
+
+The app shows a collision in a red button with the direction it came from
+and its strength; clicking it resets. Collisions appear as red lines in the
+plots, and while recording they are also written to ``<recording>.events.csv``.
+The thresholds can be changed in the app (``a25``, ``vib`` in mg). Replaying
+the first recordings through the firmware code gives the same results as
+``analyze.py``: all 5 collisions, none of 23 hard stops and none of the
+spins recorded so far.
+
 Collision Analysis
 ******************
 
@@ -63,14 +93,26 @@ collision rule against the labels set in the app:
 It computes the horizontal acceleration averaged over 25 ms (``a25``, the
 short push of an impact; driving vibration averages out), the vibration RMS
 over 100 ms (``vib``) and the drive context (idle, starting, driving,
-stopping). The rule under test reports a collision when ``a25`` exceeds
-0.6 g or ``vib`` exceeds 0.9 g while driving, with the direction it came
-from. A hard stop at full speed reaches about 0.75 g ``a25`` but happens
+turning, stopping). The rule under test reports a collision when ``a25``
+exceeds 0.6 g or ``vib`` exceeds 0.9 g while driving straight, or ``a25``
+exceeds 1.0 g while turning, with the direction it came from. A hard stop
+at full speed reaches about 0.75 g ``a25`` but happens
 after the stop command, so the context separates it. The thresholds are
 provisional; ``--a25`` and ``--vib`` change them, and the per-label summary
 shows how they separate the labelled events. Physically impossible samples
 (corrupted reads) are dropped; the firmware also discards them and counts
 them in the app's IMU card.
+
+``tools/viewer.py`` shows recordings interactively: raw IMU data, both
+features with their thresholds, rotation rate and side speeds, with the
+driving context shaded, the labels, the events of the rule and the
+collisions the robot reported. Changing a threshold recomputes the events;
+clicking an event zooms to it. "Label as" labels a whole file whose labels
+are missing or wrong:
+
+.. code-block:: console
+
+   python3 workspace/robot/tools/viewer.py workspace/robot/Data
 
 Battery Monitoring
 ******************
@@ -231,7 +273,8 @@ live and records labelled data:
 * The plots show acceleration (with its magnitude ``|a|``) and rotation rate
   in the robot frame (x forward, y left, z up) and both side speeds, over
   2, 5, 10 or 30 s. Pause freezes them for zooming with the mouse.
-* Record writes a CSV into the chosen folder. Label what happens next with
+* Record writes a CSV into the chosen folder and resets the label to none.
+  Label what happens next with
   the buttons or keys: C collision, B brake, V reverse, P push, L lift,
   S bump, N none. Labels appear as dashed lines in the plots and in the
   event list.
