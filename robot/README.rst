@@ -139,11 +139,27 @@ If the robot keeps running the old version, mark and reset by hand::
    smpmgr --ip <robot address> image state-write <hash of slot 1>
    smpmgr --ip <robot address> os reset
 
-MCUboot swaps the images on the reset. The new firmware confirms itself as
-soon as it is on the network; an image that never gets there is not
-confirmed, and MCUboot returns to the previous one on the next reset (a power
-cycle if the new image hangs). Bump ``VERSION`` for each release so
-``image state-read`` shows which one runs.
+MCUboot swaps the images on the reset (swap using move; the sysbuild default,
+swap using offset, hung the first boot after an update on ESP32). The new
+firmware confirms itself as soon as it is on the network; an image that never
+gets there is not confirmed, and MCUboot returns to the previous one on the
+next reset. A hardware watchdog (``src/health.c``) resets the robot when the
+link or IMU thread stops making progress, and a crash resets it too, so a
+broken update rolls back without help. A hang before the application starts
+is not covered: MCUboot does not keep a watchdog running into the application.
+``robot hang`` in the shell hangs on purpose to test this.
+
+Bump ``VERSION`` for each release so ``image state-read`` shows which one
+runs. Updates have failed while the robot ran from its battery alone; keep
+USB or a charged battery connected during an update.
+
+Changing the MCUboot mode needs one USB flash of both images, after erasing
+the old slot contents:
+
+.. code-block:: console
+
+   python3 -m esptool --port /dev/ttyUSB0 erase-region 0x20000 0x380000
+   west flash
 
 The update port accepts uploads from anyone on the network, but MCUboot
 refuses to boot an image that is not signed with the robot's key.
@@ -163,6 +179,8 @@ Shell Commands
    robot motor <1-4> <fwd|rev|stop|-100..100>   # one motor, no ramp
    robot status        # battery voltages and inhibit state
    robot reset         # clear a latched inhibit (collision)
+   robot imu           # IMU statistics and latest sample
+   robot hang          # hang on purpose; the watchdog resets the robot
 
 PC App
 ******

@@ -15,6 +15,7 @@
 
 #include "battery.h"
 #include "drive.h"
+#include "health.h"
 #include "imu.h"
 #include "link.h"
 #include "wifi.h"
@@ -253,11 +254,14 @@ static void rx_thread(void *p1, void *p2, void *p3)
 	}
 
 	k_sem_give(&sock_ready);
+	health_watch(HEALTH_LINK, true);
 
 	pfd.fd = sock;
 	pfd.events = ZSOCK_POLLIN;
 
 	for (;;) {
+		health_beat(HEALTH_LINK);
+
 		if (zsock_poll(&pfd, 1, POLL_MS) > 0) {
 			struct net_sockaddr_in from;
 			net_socklen_t len = sizeof(from);

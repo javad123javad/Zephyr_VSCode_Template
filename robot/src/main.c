@@ -121,6 +121,23 @@ static int cmd_imu(const struct shell *sh, size_t argc, char **argv)
 	return 0;
 }
 
+static int cmd_hang(const struct shell *sh, size_t argc, char **argv)
+{
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+
+	shell_print(sh, "Stopping all threads; the watchdog should reset the robot");
+	drive(DRIVE_STOP, 0U);
+	k_msleep(100);
+
+	/* Keep every other thread off the CPU, the watchdog's feeder included. */
+	k_sched_lock();
+	for (;;) {
+	}
+
+	return 0;
+}
+
 static int cmd_reset(const struct shell *sh, size_t argc, char **argv)
 {
 	ARG_UNUSED(sh);
@@ -141,6 +158,7 @@ SHELL_STATIC_SUBCMD_SET_CREATE(robot_cmds,
 	SHELL_CMD(status, NULL, "Battery and inhibit state", cmd_status),
 	SHELL_CMD(imu, NULL, "IMU statistics and latest sample", cmd_imu),
 	SHELL_CMD(reset, NULL, "Clear a latched inhibit (collision)", cmd_reset),
+	SHELL_CMD(hang, NULL, "Hang on purpose to test the watchdog", cmd_hang),
 	SHELL_CMD_ARG(motor, NULL, "Drive one motor: <1-4> <fwd|rev|stop|-100..100>", cmd_motor, 3, 0),
 	SHELL_SUBCMD_SET_END);
 
@@ -159,10 +177,7 @@ int main(void)
 		LOG_ERR("Battery monitoring not started (%d)", err);
 	}
 
-	err = imu_start();
-	if (err != 0) {
-		LOG_ERR("IMU not started (%d)", err);
-	}
+	(void)imu_start();
 
 	err = wifi_start();
 	if (err != 0) {

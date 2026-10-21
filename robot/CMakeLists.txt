@@ -17,6 +17,7 @@ project(robot)
 
 target_sources(app PRIVATE
   src/drive.c
+  src/health.c
   src/imu.c
   src/link.c
   src/main.c

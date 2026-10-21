@@ -59,10 +59,13 @@ struct imu_stats {
 };
 
 /**
- * @brief Detect and configure the IMU and start sampling and streaming.
+ * @brief Detect and configure the IMU and start sampling.
+ *
+ * When the accelerometer does not answer, it is looked for again every 2 s
+ * and sampling starts once it is found.
  *
  * @retval 0 Started
- * @retval -ENODEV I2C bus or accelerometer not found
+ * @retval -ENODEV Not found yet, or I2C bus not ready
  */
 int imu_start(void);
 

@@ -19,6 +19,7 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/byteorder.h>
 
+#include "health.h"
 #include "imu.h"
 
 LOG_MODULE_REGISTER(imu, LOG_LEVEL_INF);
@@ -135,7 +136,7 @@ static int accel_setup(void)
 
 	err = i2c_reg_read_byte(i2c, ADXL345_ADDR, ADXL345_DEVID, &id);
 	if ((err != 0) || (id != ADXL345_DEVID_VAL)) {
-		LOG_ERR("ADXL345 not found at 0x%02x (err %d, id 0x%02x)", ADXL345_ADDR, err, id);
+		LOG_DBG("ADXL345 not found at 0x%02x (err %d, id 0x%02x)", ADXL345_ADDR, err, id);
 		return -ENODEV;
 	}
 
@@ -332,6 +333,7 @@ static void sample_thread(void *p1, void *p2, void *p3)
 		/* Two periods without an interrupt: read anyway and count it. */
 		bool timed_out = k_sem_take(&drdy_sem, K_USEC(2U * period_us)) != 0;
 
+		health_beat(HEALTH_IMU);
 		s.t_us = timed_out ? (uint32_t)k_cyc_to_us_floor64(k_cycle_get_64()) : drdy_us;
 
 		if (read_sample(&s) == 0) {
@@ -382,16 +384,10 @@ void imu_stream_enable(bool on)
 	k_spin_unlock(&lock, key);
 }
 
-int imu_start(void)
+/* Set up both chips and the interrupt; 0 when sampling can start. */
+static int imu_setup(void)
 {
 	int err;
-
-	period_us = USEC_PER_SEC / CONFIG_ROBOT_IMU_RATE;
-
-	if (!device_is_ready(i2c) || !gpio_is_ready_dt(&drdy)) {
-		LOG_ERR("I2C or interrupt GPIO not ready");
-		return -ENODEV;
-	}
 
 	err = accel_setup();
 	if (err != 0) {
@@ -413,14 +409,51 @@ int imu_start(void)
 		return err;
 	}
 
+	k_spinlock_key_t key = k_spin_lock(&lock);
+
 	stats.rate_hz = CONFIG_ROBOT_IMU_RATE;
 	stats.gyro_addr = gyro_addr;
 	stats.accel_ok = true;
+	k_spin_unlock(&lock, key);
 
 	LOG_INF("ADXL345 ok, gyro %s0x%02x, %u Hz", (gyro_addr != 0U) ? "" : "missing ",
 		gyro_addr, CONFIG_ROBOT_IMU_RATE);
 
+	health_watch(HEALTH_IMU, true);
 	k_sem_give(&started_sem);
+
+	return 0;
+}
+
+/* The module may be powered or connected after boot: keep looking. */
+#define RETRY_PERIOD K_SECONDS(2)
+
+static void retry_work_handler(struct k_work *work);
+static K_WORK_DELAYABLE_DEFINE(retry_work, retry_work_handler);
+
+static void retry_work_handler(struct k_work *work)
+{
+	ARG_UNUSED(work);
+
+	if (imu_setup() != 0) {
+		(void)k_work_schedule(&retry_work, RETRY_PERIOD);
+	}
+}
+
+int imu_start(void)
+{
+	period_us = USEC_PER_SEC / CONFIG_ROBOT_IMU_RATE;
+
+	if (!device_is_ready(i2c) || !gpio_is_ready_dt(&drdy)) {
+		LOG_ERR("I2C or interrupt GPIO not ready");
+		return -ENODEV;
+	}
+
+	if (imu_setup() != 0) {
+		LOG_WRN("IMU not found, retrying every 2 s");
+		(void)k_work_schedule(&retry_work, RETRY_PERIOD);
+		return -ENODEV;
+	}
 
 	return 0;
 }
