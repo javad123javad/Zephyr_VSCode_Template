@@ -182,6 +182,9 @@ live and records labelled data:
 * Arrow keys drive; up or down together with left or right drives a curve
   with the inner side slowed to 30 %. Left or right alone spins in place.
   The slider sets the speed, Shift halves it. Space or the STOP button stops.
+  The on-screen arrows drive too while pressed with the mouse or a finger.
+* Connect/Disconnect toggles the session; while disconnected the app does
+  not reconnect by itself.
 * A gamepad's left stick drives too (needs pygame): its direction picks the
   move, how far it is pushed sets the speed. The arrow pad shows the active
   direction and the bars the actual side speeds.

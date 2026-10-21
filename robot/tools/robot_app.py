@@ -140,6 +140,8 @@ class Link:
     def close(self):
         self.send("D 0 0 0")
         self.send("X")
+        self.addr = None
+        self.searching = False
 
     def poll(self):
         """Return (IMU sample tuples, latest status tuple or None)."""
@@ -155,11 +157,11 @@ class Link:
                 continue
             magic = struct.unpack_from("<I", data)[0]
             if magic == STATUS_MAGIC and len(data) >= STATUS_V070.size:
-                if self.searching or self.addr is None:
+                if self.searching:
                     # First robot that answers the search.
                     self.addr = (src[0], PORT)
                     self.searching = False
-                if src[0] != self.addr[0]:
+                if self.addr is None or src[0] != self.addr[0]:
                     continue
                 if len(data) >= STATUS.size:
                     status = STATUS.unpack_from(data)
@@ -259,10 +261,16 @@ class Card(QtWidgets.QFrame):
 
 
 class DrivePad(QtWidgets.QWidget):
-    """Arrow pad lit by the active direction, plus side-speed bars."""
+    """Arrow pad lit by the active direction, plus side-speed bars.
+
+    The arrows also drive while pressed with the mouse or a finger.
+    """
+
+    pressed = QtCore.Signal(str)
 
     def __init__(self):
         super().__init__()
+        self.mouse_dir = None
         self.setMinimumSize(220, 150)
         self.throttle = 0
         self.turn = 0
@@ -275,15 +283,43 @@ class DrivePad(QtWidgets.QWidget):
             self.throttle, self.turn, self.left, self.right = throttle, turn, left, right
             self.update()
 
+    def cells(self):
+        key = min(44, (self.height() - 20) // 2 - 4)
+        cx = 70
+        return key, {"up": (cx - key // 2, 6), "left": (cx - key * 3 // 2 - 4, 10 + key),
+                     "down": (cx - key // 2, 10 + key), "right": (cx + key // 2 + 4, 10 + key)}
+
+    def _hit(self, pos):
+        key, cells = self.cells()
+        for name, (x, y) in cells.items():
+            if QtCore.QRect(x, y, key, key).contains(pos):
+                return name
+        return None
+
+    def _set_mouse(self, name):
+        if name != self.mouse_dir:
+            self.mouse_dir = name
+            self.pressed.emit(name or "")
+
+    def mousePressEvent(self, ev):
+        self._set_mouse(self._hit(ev.position().toPoint()))
+
+    def mouseMoveEvent(self, ev):
+        if ev.buttons() & QtCore.Qt.LeftButton:
+            self._set_mouse(self._hit(ev.position().toPoint()))
+
+    def mouseReleaseEvent(self, ev):
+        self._set_mouse(None)
+
+    def leaveEvent(self, ev):
+        self._set_mouse(None)
+
     def paintEvent(self, ev):
         th = self.theme
         p = QtGui.QPainter(self)
         p.setRenderHint(QtGui.QPainter.Antialiasing)
         w, h = self.width(), self.height()
-        key = min(44, (h - 20) // 2 - 4)
-        cx = 70
-        cells = {"up": (cx - key // 2, 6), "left": (cx - key * 3 // 2 - 4, 10 + key),
-                 "down": (cx - key // 2, 10 + key), "right": (cx + key // 2 + 4, 10 + key)}
+        key, cells = self.cells()
         active = {"up": self.throttle > 0, "down": self.throttle < 0,
                   "left": self.turn < 0, "right": self.turn > 0}
         glyph = {"up": "↑", "down": "↓", "left": "←", "right": "→"}
@@ -331,7 +367,9 @@ class Window(QtWidgets.QMainWindow):
         self.link = Link()
         self.pad = Gamepad()
         self.held = set()
+        self.mouse_dir = ""
         self.slow = False
+        self.wanted = True       # the user wants a connection
         self.current = (0, 0, 0)
         self.last_sent = 0.0
         self.lost_since = None
@@ -383,8 +421,13 @@ class Window(QtWidgets.QMainWindow):
         self.host.returnPressed.connect(self.connect_robot)
         top.addWidget(QtWidgets.QLabel("Robot"))
         top.addWidget(self.host)
-        top.addWidget(QtWidgets.QPushButton("Connect", clicked=self.connect_robot))
-        top.addWidget(QtWidgets.QPushButton("Search", clicked=self.search_robot))
+        self.conn_btn = QtWidgets.QPushButton("Connect", checkable=True)
+        self.conn_btn.setFocusPolicy(QtCore.Qt.NoFocus)
+        self.conn_btn.clicked.connect(self.toggle_connection)
+        top.addWidget(self.conn_btn)
+        search = QtWidgets.QPushButton("Search", clicked=self.search_robot)
+        search.setFocusPolicy(QtCore.Qt.NoFocus)
+        top.addWidget(search)
         self.conn = QtWidgets.QLabel()
         top.addWidget(self.conn, 1)
         self.theme_btn = QtWidgets.QPushButton("Dark", clicked=self.toggle_theme)
@@ -437,6 +480,7 @@ class Window(QtWidgets.QMainWindow):
 
         side = QtWidgets.QVBoxLayout()
         self.drive_pad = DrivePad()
+        self.drive_pad.pressed.connect(self.pad_pressed)
         side.addWidget(self.drive_pad)
         sp = QtWidgets.QHBoxLayout()
         sp.addWidget(QtWidgets.QLabel("Speed"))
@@ -556,7 +600,27 @@ class Window(QtWidgets.QMainWindow):
 
     # Connection ---------------------------------------------------------------
 
+    def toggle_connection(self, on):
+        if on:
+            self.connect_robot()
+        else:
+            self.disconnect_robot()
+
+    def disconnect_robot(self):
+        self.wanted = False
+        self.held.clear()
+        self.mouse_dir = ""
+        self.link.close()
+        self.current = (0, 0, 0)
+        self.lost_since = None
+        self.conn_btn.setChecked(False)
+        self.conn_btn.setText("Connect")
+        self.conn.setText("disconnected")
+
     def connect_robot(self):
+        self.wanted = True
+        self.conn_btn.setChecked(True)
+        self.conn_btn.setText("Disconnect")
         self.host.clearFocus()
         host = self.host.text().strip() or "robot.local"
         if self.link.connect(host):
@@ -567,12 +631,17 @@ class Window(QtWidgets.QMainWindow):
         self.lost_since = None
 
     def search_robot(self):
+        self.wanted = True
+        self.conn_btn.setChecked(True)
+        self.conn_btn.setText("Disconnect")
         nets = ", ".join(str(n) for n in local_subnets()) or "no network"
         self.conn.setText(f"searching {nets} …")
         self.link.search()
 
     def check_connection(self):
         now = time.time()
+        if not self.wanted:
+            return
         if self.link.alive:
             self.lost_since = None
             return
@@ -649,11 +718,16 @@ class Window(QtWidgets.QMainWindow):
         if ev.type() == QtCore.QEvent.ApplicationDeactivate:
             # Never keep driving with keys the window no longer sees.
             self.held.clear()
+            self.mouse_dir = ""
             self.slow = False
         return super().eventFilter(obj, ev)
 
+    def pad_pressed(self, name):
+        self.mouse_dir = name
+
     def emergency_stop(self):
         self.held.clear()
+        self.mouse_dir = ""
         self.link.send("D 0 0 0")
         self.current = (0, 0, 0)
         self.statusBar().showMessage("stopped", 2000)
@@ -666,16 +740,20 @@ class Window(QtWidgets.QMainWindow):
         pad = self.pad.command()
         if pad:
             return pad, "gamepad"
-        throttle = ("up" in self.held) - ("down" in self.held)
-        turn = ("right" in self.held) - ("left" in self.held)
+        held = self.held | ({self.mouse_dir} if self.mouse_dir else set())
+        throttle = ("up" in held) - ("down" in held)
+        turn = ("right" in held) - ("left" in held)
+        source = "screen" if self.mouse_dir else "keyboard"
         if throttle == 0 and turn == 0:
-            return (0, 0, 0), "keyboard"
+            return (0, 0, 0), source
         speed = self.speed.value()
         if self.slow:
             speed = max(MIN_SPEED, speed // 2)
-        return (throttle, turn, speed), "keyboard"
+        return (throttle, turn, speed), source
 
     def drive(self):
+        if not self.wanted:
+            return
         cmd, source = self.command()
         now = time.time()
         if cmd != self.current or (cmd != (0, 0, 0) and now - self.last_sent >= REPEAT_S):
