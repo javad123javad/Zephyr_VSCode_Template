@@ -14,6 +14,7 @@
 #include <zephyr/net/socket.h>
 
 #include "battery.h"
+#include "collision.h"
 #include "drive.h"
 #include "health.h"
 #include "imu.h"
@@ -64,6 +65,43 @@ static int handle_command(char *cmd)
 	case 'R':
 		drive_inhibit_clear(DRIVE_INHIBIT_LATCHED);
 		return 0;
+	case 'M': {
+		long mode = strtol(pos, NULL, 10);
+
+		if ((mode < COLLISION_OFF) || (mode > COLLISION_STOP)) {
+			return -EINVAL;
+		}
+		collision_set_mode((enum collision_mode)mode);
+		return 0;
+	}
+	case 'T': {
+		struct collision_state cur;
+		long v[4];
+		size_t n = 0U;
+
+		collision_get(&cur);
+		v[2] = cur.a25_turn_thr_mg;
+		v[3] = cur.vib_turn_thr_mg;
+		while (n < ARRAY_SIZE(v)) {
+			char *end;
+			long x = strtol(pos, &end, 10);
+
+			if (end == pos) {
+				break;
+			}
+			v[n++] = x;
+			pos = end;
+		}
+		/* Two values keep the turning thresholds; vib turning may be 0. */
+		if (((n != 2U) && (n != 4U)) || (v[0] < 100) || (v[0] > 16000) ||
+		    (v[1] < 100) || (v[1] > 16000) || (v[2] < 100) || (v[2] > 16000) ||
+		    (v[3] < 0) || (v[3] > 16000)) {
+			return -EINVAL;
+		}
+		collision_set_thresholds((uint16_t)v[0], (uint16_t)v[1], (uint16_t)v[2],
+					 (uint16_t)v[3]);
+		return 0;
+	}
 	case 'D':
 		break;
 	default:
@@ -120,6 +158,20 @@ static void send_status(int s, const struct net_sockaddr_in *to)
 	st.imu_int_timeouts = imu.int_timeouts;
 	st.imu_dropped = imu.dropped;
 	st.imu_rejected = imu.rejected;
+
+	struct collision_state col;
+
+	collision_get(&col);
+	st.col_mode = (uint8_t)col.mode;
+	st.col_sector = col.sector;
+	st.col_a25_thr_mg = col.a25_thr_mg;
+	st.col_vib_thr_mg = col.vib_thr_mg;
+	st.col_a25_mg = col.a25_mg;
+	st.col_vib_mg = col.vib_mg;
+	st.col_count = col.count;
+	st.col_t_us = col.t_us;
+	st.col_a25_turn_thr_mg = col.a25_turn_thr_mg;
+	st.col_vib_turn_thr_mg = col.vib_turn_thr_mg;
 	st.gyro_bias_updates = imu.bias_updates;
 	for (size_t i = 0U; i < 3U; i++) {
 		st.gyro_bias_mdps[i] =

@@ -10,6 +10,10 @@
  *   "S"                        keep the session alive and stream data
  *   "D <throttle> <turn> <speed>"  drive, e.g. "D 1 -1 80"; runs 700 ms
  *   "R"                        clear latched drive inhibits (collision)
+ *   "M <mode>"                 collision detection: 0 off, 1 monitor, 2 stop
+ *   "T <a25> <vib> [<a25 turning> <vib turning>]"
+ *                              collision thresholds in mg; vib turning 0 =
+ *                              vibration unused while turning
  *   "X"                        end the session
  *
  * Robot to PC, binary, little endian: struct link_imu_header followed by
@@ -70,6 +74,23 @@ struct link_status {
 	uint32_t send_max_ms;
 	/** IMU samples discarded as corrupted since boot. */
 	uint32_t imu_rejected;
+	/** Collision detection: enum collision_mode and thresholds in mg. */
+	uint8_t col_mode;
+	/** Last collision: direction it came from, see COLLISION_SECTORS. */
+	uint8_t col_sector;
+	uint16_t col_a25_thr_mg;
+	uint16_t col_vib_thr_mg;
+	/** Last collision: peaks in mg. */
+	uint16_t col_a25_mg;
+	uint16_t col_vib_mg;
+	uint16_t reserved2;
+	/** Collisions since boot; a change means a new one. */
+	uint32_t col_count;
+	/** Last collision: sample time, same clock as the IMU stream. */
+	uint32_t col_t_us;
+	/** Collision thresholds while turning, mg; vibration 0 = unused. */
+	uint16_t col_a25_turn_thr_mg;
+	uint16_t col_vib_turn_thr_mg;
 } __packed;
 
 #endif /* ROBOT_LINK_H_ */

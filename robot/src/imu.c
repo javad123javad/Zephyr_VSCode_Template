@@ -19,6 +19,7 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/byteorder.h>
 
+#include "collision.h"
 #include "health.h"
 #include "imu.h"
 
@@ -55,7 +56,7 @@ LOG_MODULE_REGISTER(imu, LOG_LEVEL_INF);
 /* Clock from the X gyro, more stable than the internal oscillator. */
 #define ITG3205_CLK_PLL_X   0x01
 
-#define SAMPLE_STACK_SIZE   1536
+#define SAMPLE_STACK_SIZE   2048
 #define SAMPLE_PRIORITY     K_PRIO_PREEMPT(2)
 
 #define RING_SAMPLES        128
@@ -347,6 +348,7 @@ static void sample_thread(void *p1, void *p2, void *p3)
 
 		if (err == 0) {
 			store(&s, timed_out);
+			collision_process(&s);
 		} else if (err == -EBADMSG) {
 			k_spinlock_key_t key = k_spin_lock(&lock);
 

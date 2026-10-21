@@ -16,6 +16,7 @@ find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(robot)
 
 target_sources(app PRIVATE
+  src/collision.c
   src/drive.c
   src/health.c
   src/imu.c

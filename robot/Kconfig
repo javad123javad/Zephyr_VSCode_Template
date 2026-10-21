@@ -74,6 +74,36 @@ config ROBOT_IMU_GYRO_BIAS_Z
 	int "Gyro bias at start-up, sensor Z (milli-deg/s)"
 	default 0
 
+config ROBOT_COLLISION_MODE
+	int "Collision detection mode at start-up"
+	range 0 2
+	default 2
+	help
+	  0 off, 1 monitor (report only), 2 stop (stop the motors and latch
+	  the collision inhibit until reset). The PC app can change it.
+
+config ROBOT_COLLISION_A25_MG
+	int "Collision threshold: horizontal acceleration over 25 ms (mg)"
+	default 600
+
+config ROBOT_COLLISION_VIB_MG
+	int "Collision threshold: vibration RMS over 100 ms (mg)"
+	default 900
+
+config ROBOT_COLLISION_A25_TURN_MG
+	int "Collision threshold while turning: acceleration over 25 ms (mg)"
+	default 1000
+	help
+	  Spins and curves shake the robot: a spin reached 0.67 g, collisions
+	  1.0 g and more.
+
+config ROBOT_COLLISION_VIB_TURN_MG
+	int "Collision threshold while turning: vibration RMS (mg), 0 = unused"
+	default 0
+	help
+	  Spins reach 1.6 g of vibration, as much as collisions, so vibration
+	  is not used while turning by default.
+
 config ROBOT_IMU_INT2
 	bool "IMU module routes A-INT to the ADXL345 INT2 output"
 	help
