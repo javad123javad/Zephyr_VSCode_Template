@@ -62,6 +62,12 @@ struct link_status {
 	/** Gyro bias in the sensor's axes, milli-deg/s. */
 	int32_t gyro_bias_mdps[3];
 	uint32_t uptime_ms;
+	/** Drive commands received in this session. */
+	uint32_t drive_cmds;
+	/** Longest gap between two drive commands in this session, ms. */
+	uint32_t drive_gap_max_ms;
+	/** Longest time one send blocked in this session, ms. */
+	uint32_t send_max_ms;
 } __packed;
 
 #endif /* ROBOT_LINK_H_ */
