@@ -15,7 +15,9 @@
  *                              collision thresholds in mg; vib turning 0 =
  *                              vibration unused while turning
  *   "C <ctx>"                  acting detector: 0 drive context, 1 IMU only
- *   "I <a25> <vib> <a25 turning> <turn deg/s>"
+ *   "E <0|1>"                  IMU-only detector off or on; off hands over to
+ *                              the drive-context detector
+ *   "I <a25> <vib> <a25 turning> <turn deg/s> [<vib turning>]"
  *                              IMU-only detector thresholds; vib 0 = unused
  *   "X"                        end the session
  *
@@ -106,9 +108,13 @@ struct link_status {
 	uint16_t imu_col_turn_dps;
 	uint16_t imu_col_a25_mg;
 	uint16_t imu_col_vib_mg;
-	uint16_t reserved3;
+	/** IMU-only detector running (firmware 0.9.1 and later; 0.9.0 sends 0). */
+	uint16_t imu_col_enabled;
 	uint32_t imu_col_count;
 	uint32_t imu_col_t_us;
+	/** IMU-only vibration threshold while turning, mg; 0 = unused (0.9.1). */
+	uint16_t imu_col_vib_turn_thr_mg;
+	uint16_t reserved4;
 } __packed;
 
 #endif /* ROBOT_LINK_H_ */

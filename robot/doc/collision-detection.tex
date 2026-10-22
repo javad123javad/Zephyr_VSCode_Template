@@ -45,7 +45,7 @@
 \title{\textbf{Collision Detection on a Skid-Steer Robot\\with a Single Accelerometer}\\[0.4em]
        \large Method, Physics and Evaluation}
 \author{Javad Rahimipetroudi}
-\date{21 October 2026 \quad---\quad firmware 0.9.0}
+\date{21 October 2026 \quad---\quad firmware 0.9.1}
 
 \begin{document}
 
@@ -167,8 +167,13 @@ $r = \SI{0.1}{\metre}$ from the centre of rotation,
   a_c = \omega^2 r = 0.37 \cdot 0.1 = \SI{0.037}{\metre\per\second\squared} \approx 0.004\g .
 \end{equation}
 Turning therefore raises the vibration but hardly the averaged acceleration. This is why the
-turning rule drops the vibration feature and keeps a higher threshold on the averaged
-acceleration.
+turning rule raises both thresholds, the vibration threshold above what scrubbing reaches. A
+spin into an obstacle makes the robot hop: $2.1$ to $3.8\g$ of vibration, with vertical swings
+of $-4$ to $+7\g$.
+
+Wheels that roll in the direction of the turn do not scrub: a differential drive with casters
+or a car-like (Ackermann) vehicle. Their turns add a real, slowly changing acceleration
+instead, $a_c = v\,\omega$, which the slow part (Section~\ref{sec:slow}) removes.
 
 \subsection{Direction of a hit}
 
@@ -251,6 +256,44 @@ and the same for $y$. The analysis tool uses the median of $a_x$ over all sample
   m_y[n] = \frac{1}{N_s} \sum_{k=0}^{N_s-1} a'_y[n-k], \qquad
   \azf[n] = \sqrt{m_x[n]^2 + m_y[n]^2} .
 \end{equation}
+Two corrections of $m_x$, $m_y$ follow, both off by default on this robot.
+
+\subsection{Lever arm}
+
+The detectors judge the acceleration of a reference point $P$: the middle between the wheels
+for a skid-steer or differential drive, the middle of the rear axle for a car-like vehicle. A
+sensor at $\mathbf{r} = (r_x, r_y)$ from $P$ on a rigid body rotating about $z$ with rate
+$\omega$ and angular acceleration $\alpha$ measures in addition
+\begin{equation}
+  \mathbf{a}_\text{imu} = \mathbf{a}_P + \boldsymbol{\alpha} \times \mathbf{r}
+    + \boldsymbol{\omega} \times (\boldsymbol{\omega} \times \mathbf{r}), \qquad
+  \Delta_x = -\alpha r_y - \omega^2 r_x, \quad \Delta_y = \alpha r_x - \omega^2 r_y .
+\end{equation}
+The firmware subtracts the window average of $\Delta$, with $\omega$ from the gyro and the
+window average of $\alpha$ from the yaw-rate difference over the window,
+$\bar\alpha[n] = (\omega[n] - \omega[n-N_s]) f_s / N_s$. The position is set with
+\code{CONFIG\_ROBOT\_COLLISION\_IMU\_POS\_X\_MM} and \code{\_Y\_MM}; 0 disables the
+correction. On this robot the centripetal part is small ($0.06\g$ at
+\SI{70}{\degree\per\second} and \SI{10}{\centi\metre}), but a hit that twists the robot changes
+the yaw rate by \SI{100}{\degree\per\second} within tens of milliseconds, so $\alpha r$
+reaches $0.7\g$ at \SI{10}{\centi\metre}. With an assumed $\mathbf{r} = (100, 30)$\,mm the
+measured hit strengths changed by up to $0.4\g$: $\mathbf{r}$ must be the measured position.
+
+\subsection{Slow part}
+\label{sec:slow}
+
+$\azf$ can be measured against a low-pass of itself with a time constant of $2^S$ samples:
+\begin{equation}
+  L_x \leftarrow L_x + \frac{m_x - L_x}{2^S}, \qquad m_x \leftarrow m_x - L_x
+  \qquad (\text{same for } y).
+\end{equation}
+It removes what changes slowly compared with an impact: the centripetal acceleration of a long
+curve, a ramp, a sustained push. Braking (about \SI{0.1}{\second}) is too fast to be affected:
+the peaks of the hard stops did not change for $S = 8$ to $11$.
+\code{CONFIG\_ROBOT\_COLLISION\_SLOW\_SHIFT} sets $S$; 0 disables it, the default here. On this
+robot no false alarm needed it, while it lowered the curve hits by $0.1$ to $0.2\g$ ($S = 9$,
+\SI{1.3}{\second}) or $0.03$ to $0.06\g$ ($S = 11$, \SI{5.1}{\second}), which the $1.0\g$
+turning threshold cannot afford. A vehicle with long curves or ramps wants $S = 10$ or $11$.
 
 \subsection{Vibration $\vib$}
 
@@ -317,7 +360,7 @@ A collision is detected at sample $n$ when
     $A$, straight   & $0.6\g$  & \code{CONFIG\_ROBOT\_COLLISION\_A25\_MG} \\
     $V$, straight   & $0.9\g$  & \code{CONFIG\_ROBOT\_COLLISION\_VIB\_MG} \\
     $A_t$, turning  & $1.0\g$  & \code{CONFIG\_ROBOT\_COLLISION\_A25\_TURN\_MG} \\
-    $V_t$, turning  & off (0)  & \code{CONFIG\_ROBOT\_COLLISION\_VIB\_TURN\_MG} \\
+    $V_t$, turning  & $2.0\g$  & \code{CONFIG\_ROBOT\_COLLISION\_VIB\_TURN\_MG} \\
     \hline
   \end{tabular}
   \caption{Thresholds. At run time the link command \code{T A V [A\_t V\_t]} (in mg) changes
@@ -327,7 +370,10 @@ A collision is detected at sample $n$ when
 
 The values follow from the evaluation (Section~\ref{sec:evaluation}): driving straight stays
 below $0.12\g$ $\azf$ and $0.61\g$ $\vib$ (99th percentiles), collisions start at $1.0\g$ and
-$1.17\g$; turning reaches $0.67\g$ $\azf$ and $1.64\g$ $\vib$, so only $\azf$ separates there.
+$1.17\g$. Turning without contact reaches $0.77\g$ $\azf$ and $1.64\g$ $\vib$, spins into an
+obstacle $1.0$ to $1.8\g$ and $1.9$ to $3.8\g$. $V_t$ detects the hard-shaking spin hits
+$0.35$ to \SI{0.4}{\second} before $\azf$ does; curve hits shake less ($0.7$ to $0.8\g$) and
+are found by $\azf$.
 Braking is excluded by the context, not by the thresholds: its jolt comes after the sides went
 to zero.
 
@@ -371,7 +417,9 @@ A vehicle may offer no access to its drive; the collision module then sees only 
 sensors. A second detector uses the same two features with a context derived from the IMU
 alone. It runs next to the drive-context detector on every sample. \code{CONFIG\_ROBOT\_%
 COLLISION\_ACTING} or the link command \code{C} selects the one that acts; the other one only
-reports, so both can be compared on the same drives.
+reports, so both can be compared on the same drives. \code{CONFIG\_ROBOT\_COLLISION\_%
+IMU\_ENABLE} or the link command \code{E} switches the IMU-only detector off and on; switching it
+off hands the action to the drive-context detector.
 
 \textbf{Turning from the gyroscope.} The yaw rate $\omega_z$ (robot frame, bias removed) is
 averaged causally over \SI{250}{\milli\second} and the state is held for
@@ -390,11 +438,14 @@ size. It takes about \SI{0.1}{\second} against \SIrange{17}{31}{\milli\second} f
 impact and stays lower: at most $0.77\g$ $\azf$ and $0.59\g$ $\vib$, against $1.03\g$ and
 $1.17\g$ for the softest collision. The rule is
 \begin{equation}
-  \big[\,\text{turning}' \land \azf > A'_t\,\big] \ \lor\
-  \big[\,\lnot\text{turning}' \land (\azf > A' \lor (V' > 0 \land \vib > V'))\,\big],
+  \begin{aligned}
+    &\big[\,\text{turning}' \land (\azf > A'_t \lor (V'_t > 0 \land \vib > V'_t))\,\big] \\
+    \lor\ &\big[\,\lnot\text{turning}' \land (\azf > A' \lor (V' > 0 \land \vib > V'))\,\big],
+  \end{aligned}
 \end{equation}
-with $A' = 0.9\g$, $V' = 0.9\g$, $A'_t = 1.0\g$ and $\Omega = \SI{10}{\degree\per\second}$
-(\code{CONFIG\_ROBOT\_COLLISION\_IMU\_*}; link command \code{I}). There is no start-up
+with $A' = 0.9\g$, $V' = 0.9\g$, $A'_t = 1.0\g$, $V'_t = 2.0\g$ and
+$\Omega = \SI{10}{\degree\per\second}$
+(\code{CONFIG\_ROBOT\_COLLISION\_}\allowbreak\code{IMU\_*}; link command \code{I}). There is no start-up
 exclusion: starts and restarts stay below $0.9\g$.
 
 \textbf{Result.} On the 13 recordings the IMU-only detector finds the same 5 collisions with
@@ -421,9 +472,9 @@ the hold gave the same result; \SI{10}{\degree\per\second} with the hold lies be
 \section{Evaluation}
 \label{sec:evaluation}
 
-All recordings were made on 21 October 2026 with this robot, on one floor, at full speed unless
-noted. Table~\ref{tab:evidence} summarises the events; Figure~\ref{fig:scatter} shows them in the
-plane of the two features.
+The recordings of Table~\ref{tab:evidence} were made on 21 October 2026 with this robot, on one
+floor, at full speed unless noted. Table~\ref{tab:evidence} summarises the events;
+Figure~\ref{fig:scatter} shows them in the plane of the two features.
 
 \begin{table}[!htbp]
   \centering
@@ -445,6 +496,27 @@ plane of the two features.
     reports peaks over its first \SI{100}{\milli\second} ($1.0$ to $1.2\g$ $\azf$ for the
     collisions).}
   \label{tab:evidence}
+\end{table}
+
+Recordings of 22 October 2026 added collisions while turning (Table~\ref{tab:turning}). In the
+slow push the robot kept turning at \SI{20}{\degree\per\second} and came to rest tilted by about
+\ang{17}: it climbed onto the obstacle without a jolt.
+
+\begin{table}[!htbp]
+  \centering
+  \small
+  \begin{tabular}{l r l l l}
+    \hline
+    Event & $n$ & $\azf$ [g] & $\vib$ [g] & Rule \\
+    \hline
+    Spin without contact, full speed      & 1 & 0.77         & 1.38         & 0/1 \\
+    Spin into an obstacle                 & 4 & 1.00 -- 1.77 & 1.89 -- 3.79 & 4/4 detected \\
+    Curve into an obstacle                & 2 & 1.09, 1.30   & 0.68, 0.80   & 2/2 detected \\
+    Curve pushing slowly onto an obstacle & 1 & 0.56         & 0.58         & 0/1 (no impact) \\
+    \hline
+  \end{tabular}
+  \caption{Collisions while turning, with $A_t = 1.0\g$ and $V_t = 2.0\g$.}
+  \label{tab:turning}
 \end{table}
 
 \begin{figure}[!htbp]
@@ -499,8 +571,10 @@ spin, $\vib$ crosses $V$ while $\azf$ stays far below $A_t$.
 \begin{itemize}
   \item The evidence is one robot, one floor and 34 events. The thresholds are empirical and
     must be checked again with more data, other floors, speeds and loads.
-  \item Collisions while turning have the thinnest margin: the softest collision reached
-    $1.03\g$ against $A_t = 1.0\g$, and no collision during a turn has been recorded yet.
+  \item Collisions in curves have the thinnest margin: the softer one reached $1.09\g$
+    against $A_t = 1.0\g$, and their vibration stays below $V_t$. Only two have been recorded.
+  \item A slow push or climb onto an obstacle is not an impact and is not detected; it would
+    need a stall signal (commanded turn without yaw) or the tilt at rest.
   \item A slow collision changes the velocity less and gives a smaller $\azf$; below about
     30\,\% speed a soft obstacle may go undetected.
   \item Collisions during the \SI{0.8}{\second} after a start or a reversal are not detected.
@@ -513,6 +587,14 @@ spin, $\vib$ crosses $V$ while $\azf$ stays far below $A_t$.
 
 % ---------------------------------------------------------------------------------------
 \section{Towards industrial AGVs}
+
+The steering matters first. This robot is skid-steered: its wheels slide sideways in every
+turn, which is why turning needs its own thresholds. Most warehouse AGVs drive differentially
+with casters, forklifts and tuggers steer a drive wheel, outdoor vehicles steer like a car;
+their wheels roll through the turn, so the scrub disappears and the straight-driving thresholds
+may hold in turns too. Their turns add $a_c = v\,\omega$ instead, which a vehicle with odometry
+subtracts directly and an IMU-only detector removes with the slow part; a sensor away from the
+reference point needs the lever-arm correction.
 
 The structure carries over, the numbers do not. A heavier vehicle has lower peaks and longer
 contacts ($a_\text{peak} t_\text{contact} = \pi v$), different vibration and slower braking.
@@ -542,11 +624,12 @@ devices according to ISO~3691-4 and ISO~13849.
   $\vib$ window $N_v$            & 40 samples (\SI{100}{\milli\second}) & \code{WIN\_VIB} \\
   Warm-up                        & 100 samples                       & \code{WARMUP} \\
   Start and reversal exclusion   & \SI{0.8}{\second}                 & \code{START\_US} \\
-  Thresholds $A$, $V$, $A_t$, $V_t$ & 0.6, 0.9, 1.0\,g, off         & Table~\ref{tab:thresholds} \\
+  Thresholds $A$, $V$, $A_t$, $V_t$ & 0.6, 0.9, 1.0, 2.0\,g        & Table~\ref{tab:thresholds} \\
+  Slow part $S$, IMU position $\mathbf{r}$ & off, (0, 0)           & \code{CONFIG\_ROBOT\_COLLISION\_}\allowbreak\code{SLOW\_SHIFT}, \code{IMU\_POS\_*} \\
   Direction samples              & 8 (\SI{20}{\milli\second})        & \code{DIR\_SAMPLES} \\
   Peak samples                   & 40 (\SI{100}{\milli\second})      & \code{PEAK\_SAMPLES} \\
-  Monitor hold-off               & \SI{1}{\second}                   & \code{HOLDOFF\_US} \\
-  IMU-only: $A'$, $V'$, $A'_t$   & 0.9, 0.9, 1.0\,g                 & \code{CONFIG\_ROBOT\_COLLISION\_}\allowbreak\code{IMU\_*} \\
+  Hold-off after an event        & \SI{1}{\second} (time elapsed, wrap-safe) & \code{HOLDOFF\_US} \\
+  IMU-only: $A'$, $V'$, $A'_t$, $V'_t$ & 0.9, 0.9, 1.0, 2.0\,g      & \code{CONFIG\_ROBOT\_COLLISION\_}\allowbreak\code{IMU\_*} \\
   IMU-only: yaw window, $\Omega$, hold & \SI{250}{\milli\second}, \SI{10}{\degree\per\second}, \SI{0.5}{\second} & \code{WIN\_YAW}, \code{TURN\_HOLD\_US} \\
   Acting detector                & drive context                     & \code{CONFIG\_ROBOT\_COLLISION\_}\allowbreak\code{ACTING} \\
   Analysis: event merge, label window & \SI{0.3}{\second}, $-0.5$ to \SI{+3}{\second} & \code{tools/analyze.py} \\

@@ -91,7 +91,13 @@ The centripetal acceleration of the turn itself is negligible: at the measured s
    a_c = ω² · r = 0.37 · 0.1 = 0.037 m/s² ≈ 0.004 g
 
 So turning raises the vibration but hardly the averaged acceleration, which is why the
-turning rule drops the vibration feature and keeps a higher averaged-acceleration threshold.
+turning rule raises both thresholds, the vibration threshold above what scrubbing reaches. A
+spin into an obstacle makes the robot hop: 2.1 to 3.8 g of vibration, with vertical swings of
+−4 to +7 g.
+
+Wheels that roll in the direction of the turn do not scrub: a differential drive with casters
+or a car-like (Ackermann) vehicle. Their turns add a real, slowly changing acceleration
+instead, ``a_c = v · ω``, which the slow part below removes.
 
 Direction of a hit
 ==================
@@ -183,6 +189,48 @@ The horizontal acceleration averaged over the last 25 ms::
 
 It captures the one-sided push of an impact and attenuates vibration (see Physics).
 
+Two corrections of ``m_x``, ``m_y`` follow, both off by default on this robot.
+
+Lever arm
+=========
+
+The detectors judge the acceleration of a reference point ``P`` of the vehicle: the middle
+between the wheels for a skid-steer or differential drive, the middle of the rear axle for a
+car-like vehicle. A sensor at ``r = (r_x, r_y)`` from ``P`` on a body rotating about z with rate
+``ω`` and angular acceleration ``α`` measures in addition (rigid body)::
+
+   a_imu = a_P + α × r + ω × (ω × r)
+   Δ_x = −α · r_y − ω² · r_x
+   Δ_y =  α · r_x − ω² · r_y
+
+The firmware subtracts the average of ``Δ`` over the 25 ms window. With ``ω`` from the gyro (rad/s)
+and the window average of ``α`` from its difference over the window::
+
+   ᾱ[n] = (ω[n] − ω[n − N_s]) · f_s / N_s
+   m_x ← m_x − Δ_x(ω[n], ᾱ[n])      m_y ← m_y − Δ_y(ω[n], ᾱ[n])
+
+``r`` is set with ``CONFIG_ROBOT_COLLISION_IMU_POS_X_MM`` and ``_Y_MM``; 0 disables the
+correction. On this robot the centripetal part is small (0.06 g at 70 °/s and 10 cm), but a
+hit that twists the robot changes the yaw rate by 100 °/s within tens of milliseconds:
+``α · r`` then reaches 0.7 g at 10 cm. Replaying the recordings with an assumed
+``r = (100, 30) mm`` changed the measured hit strengths by up to 0.4 g, so ``r`` must be the
+measured position.
+
+Slow part
+=========
+
+``a25`` is measured against a low-pass of itself with time constant ``2^S`` samples::
+
+   L_x ← L_x + (m_x − L_x) / 2^S       m_x ← m_x − L_x       (same for y)
+
+It removes what changes slowly compared with an impact: the centripetal acceleration of a long
+curve, a ramp, a sustained push. Braking (about 0.1 s) is too fast to be affected: the peaks
+of the hard stops did not change for ``S`` = 8 to 11. ``CONFIG_ROBOT_COLLISION_SLOW_SHIFT``
+sets ``S``, 0 disables it (the default here). On this robot no false alarm needed it, while
+it lowered the curve hits by 0.1 to 0.2 g (``S = 9``, 1.3 s) or 0.03 to 0.06 g
+(``S = 11``, 5.1 s), which the 1.0 g turning threshold cannot afford; a vehicle with long curves
+or ramps wants ``S`` = 10 or 11.
+
 vib: vibration
 ==============
 
@@ -247,12 +295,14 @@ Threshold             Default   Kconfig                                   Link c
 ``A`` straight        0.6 g     ``CONFIG_ROBOT_COLLISION_A25_MG``         ``T A V [A_t V_t]``
 ``V`` straight        0.9 g     ``CONFIG_ROBOT_COLLISION_VIB_MG``
 ``A_t`` turning       1.0 g     ``CONFIG_ROBOT_COLLISION_A25_TURN_MG``
-``V_t`` turning       off (0)   ``CONFIG_ROBOT_COLLISION_VIB_TURN_MG``
+``V_t`` turning       2.0 g     ``CONFIG_ROBOT_COLLISION_VIB_TURN_MG``
 ====================  ========  ========================================  ==========================
 
 Why these values (see Evidence): straight driving stays below 0.12 g ``a25`` and 0.61 g
-``vib`` (99th percentiles), collisions start at 1.0 g and 1.17 g; turning reaches 0.67 g
-``a25`` and 1.64 g ``vib``, so only ``a25`` separates there.
+``vib`` (99th percentiles), collisions start at 1.0 g and 1.17 g. Turning without contact
+reaches 0.77 g ``a25`` and 1.64 g ``vib``; spins into an obstacle 1.0 to 1.8 g and 1.9 to
+3.8 g. ``V_t`` detects the hard-shaking spin hits 0.35 to 0.4 s before ``a25`` does; curve hits
+shake less (0.7 to 0.8 g) and are found by ``a25``.
 
 Braking is excluded by the context, not by the thresholds: the jolt of a stop comes after
 the sides went to zero.
@@ -264,7 +314,9 @@ A vehicle may offer no access to its drive: the collision module then sees only 
 A second detector uses the same two features with a context derived from the IMU alone. It runs
 next to the drive-context detector on every sample; ``CONFIG_ROBOT_COLLISION_ACTING`` or the
 link command ``C <0|1>`` selects the one that acts, the other one only reports, so both can be
-compared on the same drives.
+compared on the same drives. ``CONFIG_ROBOT_COLLISION_IMU_ENABLE`` or the link command
+``E <0|1>`` switches the IMU-only detector off and on; switching it off hands the action to the
+drive-context detector, and ``C 1`` is refused while it is off.
 
 Turning comes from the gyroscope. The yaw rate ``ω_z`` (robot frame, bias removed) is averaged
 over the last 250 ms, causally::
@@ -280,18 +332,22 @@ Without the drive state, braking is excluded by higher thresholds only. It takes
 against 17 to 31 ms for an impact, so it stays lower: 0.77 g ``a25`` and 0.59 g ``vib`` at most,
 against 1.03 g and 1.17 g for the softest collision. The rule::
 
-   turning_imu[n]      and  a25[n] > A_t'
+   turning_imu[n]      and  ( a25[n] > A_t'  or  (V_t' > 0 and vib[n] > V_t') )
    or
    not turning_imu[n]  and  ( a25[n] > A'  or  (V' > 0 and vib[n] > V') )
 
-======================  ========  ==========================================  =================
-Threshold               Default   Kconfig                                     Link command
-======================  ========  ==========================================  =================
-``A'``                  0.9 g     ``CONFIG_ROBOT_COLLISION_IMU_A25_MG``       ``I A' V' A_t' Ω``
-``V'`` (0 = unused)     0.9 g     ``CONFIG_ROBOT_COLLISION_IMU_VIB_MG``       (mg, mg, mg, °/s)
+======================  ========  ===============================================
+Threshold               Default   Kconfig
+======================  ========  ===============================================
+``A'``                  0.9 g     ``CONFIG_ROBOT_COLLISION_IMU_A25_MG``
+``V'`` (0 = unused)     0.9 g     ``CONFIG_ROBOT_COLLISION_IMU_VIB_MG``
 ``A_t'``                1.0 g     ``CONFIG_ROBOT_COLLISION_IMU_A25_TURN_MG``
+``V_t'`` (0 = unused)   2.0 g     ``CONFIG_ROBOT_COLLISION_IMU_VIB_TURN_MG``
 ``Ω`` turning yaw rate  10 °/s    ``CONFIG_ROBOT_COLLISION_IMU_TURN_DPS``
-======================  ========  ==========================================  =================
+======================  ========  ===============================================
+
+The link command ``I A' V' A_t' Ω [V_t']`` sets them (mg and °/s); without ``V_t'`` it keeps
+the current value.
 
 There is no start-up exclusion: starts and restarts stay below 0.9 g.
 
@@ -322,6 +378,8 @@ Mode ``CONFIG_ROBOT_COLLISION_MODE`` or link command ``M <mode>``:
   ``DRIVE_INHIBIT_COLLISION`` is set,
   which sets both sides to zero at once and blocks drive commands until a reset (``R``).
 * ``1`` monitor: the collision is reported, the robot keeps driving; one report per 1 s.
+  The hold-off is measured as time elapsed since the event, so it stays correct when the
+  32-bit microsecond clock wraps (every 71.6 minutes).
 * ``0`` off.
 
 The 40 samples after detection (100 ms) characterise the event:
@@ -378,6 +436,20 @@ Auto-stop at full speed                21     0.67 – 0.77  0.35 – 0.59  0 / 
 Spin, left and right                   5      0.27 – 0.67  0.97 – 1.64  0 / 5 with turning rule
 =====================================  =====  ===========  ===========  ======================
 
+Recordings of 22 October 2026, turning:
+
+=====================================  =====  ===========  ===========  ======================
+Event                                  Count  a25 (g)      vib (g)      Rule
+=====================================  =====  ===========  ===========  ======================
+Spin without contact, full speed       1      0.77         1.38         0 / 1
+Spin into an obstacle                  4      1.00 – 1.77  1.89 – 3.79  4 / 4 detected
+Curve into an obstacle                 2      1.09, 1.30   0.68, 0.80   2 / 2 detected
+Curve pushing slowly onto an obstacle  1      0.56         0.58         0 / 1, no impact
+=====================================  =====  ===========  ===========  ======================
+
+In the slow push the robot kept turning at 20 °/s and came to rest tilted by about 17°: it
+climbed onto the obstacle without a jolt.
+
 The a25 and vib values are the event maxima from the analysis tool; the firmware reports the
 peaks over its first 100 ms (1.0 to 1.2 g a25 for the collisions above). Replaying every
 recording through the firmware code on a PC gives the same detections as the tool, with the
@@ -391,8 +463,11 @@ Limits
 
 * The evidence is one robot, one floor and 34 events. The thresholds are empirical and must
   be checked again with more data, other floors, speeds and loads.
-* Collisions while turning have the thinnest margin: the softest collision reached 1.03 g,
-  the turning threshold is 1.0 g, and no collision during a turn has been recorded yet.
+* Collisions in curves have the thinnest margin: the softer one reached 1.09 g in the
+  analysis and 1.10 g in the firmware against the 1.0 g turning threshold, and their vibration
+  stays below ``V_t``. Only two have been recorded.
+* A slow push or climb onto an obstacle is not an impact and is not detected; it would need a
+  stall signal (commanded turn without yaw) or the tilt at rest.
 * A slow collision changes the velocity by less and gives a smaller ``a25``; below about 30 %
   speed a soft obstacle may not be detected.
 * A collision during the 0.8 s after a start or a reversal is not detected.
@@ -404,6 +479,14 @@ Limits
 
 Towards Real AGVs
 *****************
+
+The steering matters first. This robot is skid-steered: its wheels slide sideways in every
+turn, which is why turning needs its own thresholds. Most warehouse AGVs drive differentially
+with casters, forklifts and tuggers steer a drive wheel, outdoor vehicles steer like a car;
+their wheels roll through the turn, so the scrub disappears and the straight-driving
+thresholds may hold in turns too. Their turns add ``a_c = v · ω`` instead, which a vehicle
+with odometry subtracts directly and an IMU-only detector removes with the slow part, and a
+sensor away from the reference point needs the lever-arm correction.
 
 The structure carries over, the numbers do not: a heavier vehicle has lower peaks and longer
 contacts (``a_peak · t_contact = π v``), different vibration and slower braking. Relative

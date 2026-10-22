@@ -43,13 +43,19 @@ STATUS_PARTS = [
     ("<HH", ["col_a25_turn_thr", "col_vib_turn_thr"]),   # 0.8.1
     ("<BBHHHHHHHII", ["col_acting", "imu_col_sector", "imu_a25_thr", "imu_vib_thr",
                       "imu_a25_turn_thr", "imu_turn_dps", "imu_col_a25", "imu_col_vib",
-                      "res3", "imu_col_count", "imu_col_t_us"]),   # 0.9.0
+                      "imu_col_enabled", "imu_col_count", "imu_col_t_us"]),   # 0.9.0
+    ("<HH", ["imu_vib_turn_thr", "res4"]),               # 0.9.1
 ]
 DETECTORS = ["drive context", "IMU only"]
 STATUS_MIN = struct.calcsize(STATUS_PARTS[0][0])
 SECTORS = ["front", "front-left", "left", "back-left", "back", "back-right", "right",
            "front-right"]
 COLLISION_MODES = ["Off", "Monitor", "Stop"]
+# Kconfig defaults of the thresholds (robot/Kconfig, ROBOT_COLLISION_*): drive
+# context (a25, vib, a25 turning, vib turning) and IMU-only (a25, vib,
+# a25 turning, vib turning, turn rate).
+DRIVE_THR_DEFAULT = (600, 900, 1000, 2000)
+IMU_THR_DEFAULT = (900, 900, 1000, 2000, 10)
 
 
 def parse_status(data):
@@ -548,33 +554,52 @@ class Window(QtWidgets.QMainWindow):
         self.col_a25, self.col_vib = spin(100), spin(100)
         self.col_a25_turn, self.col_vib_turn = spin(100), spin(0, off=True)
         self.imu_a25, self.imu_vib = spin(100), spin(0, off=True)
-        self.imu_a25_turn, self.imu_turn_dps = spin(100), spin(1, " °/s", step=1)
+        self.imu_a25_turn, self.imu_vib_turn = spin(100), spin(0, off=True)
+        self.imu_turn_dps = spin(1, " °/s", step=1)
         rows = [("Straight", self.col_a25, self.col_vib,
                  "Drive context, driving straight: a25 (25 ms average) and vibration"),
                 ("Turning", self.col_a25_turn, self.col_vib_turn,
                  "Drive context, spin or curve: the wheels scrub and shake the robot"),
                 ("IMU only", self.imu_a25, self.imu_vib,
                  "IMU-only detector, not turning: braking is excluded only by these"),
-                ("IMU turn", self.imu_a25_turn, self.imu_turn_dps,
-                 "IMU-only detector: a25 while turning, and the yaw rate over 250 ms\n"
-                 "above which the robot counts as turning (held 0.5 s)")]
-        for r, (name, a, b, tip) in enumerate(rows, start=1):
+                ("IMU turn", self.imu_a25_turn, self.imu_vib_turn,
+                 "IMU-only detector while turning: a25 and vibration"),
+                ("Turn rate", self.imu_turn_dps, None,
+                 "IMU-only detector: the yaw rate over 250 ms above which the robot\n"
+                 "counts as turning (held 0.5 s)")]
+        self.imu_enable = QtWidgets.QCheckBox("IMU-only detector")
+        self.imu_enable.setToolTip("Run the second detector, which uses the IMU alone.\n"
+                                   "Off: the drive detector acts. Needs firmware 0.9.1.")
+        self.imu_enable.setFocusPolicy(QtCore.Qt.NoFocus)
+        self.imu_enable.setEnabled(False)
+        self.imu_enable.clicked.connect(lambda on: self.link.send(f"E {int(on)}"))
+        r = 1
+        for name, a, b, tip in rows:
+            if a is self.imu_a25:
+                grid.addWidget(self.imu_enable, r, 0, 1, 3)
+                r += 1
             lab = QtWidgets.QLabel(name)
-            for w in (lab, a, b):
-                w.setToolTip(tip)
-            grid.addWidget(lab, r, 0)
-            grid.addWidget(a, r, 1)
-            grid.addWidget(b, r, 2)
+            for col, w in enumerate((lab, a, b)):
+                if w is not None:
+                    w.setToolTip(tip)
+                    grid.addWidget(w, r, col)
+            r += 1
         self.col_counts_label = QtWidgets.QLabel("detected: –")
         self.col_counts_label.setObjectName("muted")
-        grid.addWidget(self.col_counts_label, len(rows) + 1, 0, 1, 3)
+        grid.addWidget(self.col_counts_label, r, 0, 1, 2)
+        defaults = QtWidgets.QPushButton("Defaults", clicked=self.default_thresholds)
+        defaults.setToolTip("Set all thresholds to the firmware defaults")
+        defaults.setFocusPolicy(QtCore.Qt.NoFocus)
+        grid.addWidget(defaults, r, 2)
         side.addWidget(box)
         self.turn_row = [self.col_a25_turn, self.col_vib_turn]
         self.imu_row = [self.col_acting, self.imu_a25, self.imu_vib, self.imu_a25_turn,
-                        self.imu_turn_dps]
+                        self.imu_vib_turn, self.imu_turn_dps]
         self.drive_pad = DrivePad()
         self.drive_pad.pressed.connect(self.pad_pressed)
         self.col_counts = [None, None]  # per detector, when last seen
+        self.fw_imu = False        # firmware has the IMU-only detector
+        self.fw_imu_vib_turn = False
         self.col_alert = False     # new collision not yet acknowledged
         self.events_file = None
         side.addWidget(self.drive_pad)
@@ -816,13 +841,23 @@ class Window(QtWidgets.QMainWindow):
                 combo.setCurrentIndex(st[key])
         for w in self.turn_row:
             w.setEnabled("col_a25_turn_thr" in st)
+        # The enable flag is reported from 0.9.1 on; before, the IMU detector always ran.
+        has_enable = (st["v0"], st["v1"], st["v2"]) >= (0, 9, 1)
+        imu_on = "imu_col_count" in st and (st["imu_col_enabled"] != 0 or not has_enable)
+        self.imu_enable.setEnabled(has_enable)
+        if self.imu_enable.isChecked() != imu_on:
+            self.imu_enable.setChecked(imu_on)
+        self.fw_imu = "imu_col_count" in st
+        self.fw_imu_vib_turn = "imu_vib_turn_thr" in st
         for w in self.imu_row:
-            w.setEnabled("imu_col_count" in st)
+            w.setEnabled(imu_on)
+        self.imu_vib_turn.setEnabled(imu_on and "imu_vib_turn_thr" in st)
         for box, key in ((self.col_a25, "col_a25_thr"), (self.col_vib, "col_vib_thr"),
                          (self.col_a25_turn, "col_a25_turn_thr"),
                          (self.col_vib_turn, "col_vib_turn_thr"),
                          (self.imu_a25, "imu_a25_thr"), (self.imu_vib, "imu_vib_thr"),
                          (self.imu_a25_turn, "imu_a25_turn_thr"),
+                         (self.imu_vib_turn, "imu_vib_turn_thr"),
                          (self.imu_turn_dps, "imu_turn_dps")):
             if key in st and not box.hasFocus() and box.value() != st[key]:
                 box.blockSignals(True)
@@ -834,17 +869,20 @@ class Window(QtWidgets.QMainWindow):
                  ("imu_col_count", "imu_col_t_us", "imu_col_a25", "imu_col_vib",
                   "imu_col_sector")]
         for det, keys in enumerate(found):
-            if keys[0] not in st:
+            if keys[0] not in st or (det == 1 and not imu_on):
+                self.col_counts[det] = None
                 continue
             last = self.col_counts[det]
             if last is not None and st[keys[0]] > last:
                 self.new_collision(det, det == acting, st["col_mode"],
                                    *(st[k] for k in keys[1:]))
             self.col_counts[det] = st[keys[0]]
-        counts = [c for c in self.col_counts if c is not None]
-        if len(counts) == 2:
-            self.col_counts_label.setText(f"detected since boot: drive {counts[0]} · "
-                                          f"IMU only {counts[1]}")
+        counts = self.col_counts
+        if counts[0] is not None:
+            text = f"detected since boot: drive {counts[0]}"
+            if counts[1] is not None:
+                text += f" · IMU only {counts[1]}"
+            self.col_counts_label.setText(text)
 
         latched = bool(st["inhibit"] & 4)
         alert = self.col_alert or latched
@@ -884,14 +922,33 @@ class Window(QtWidgets.QMainWindow):
         self.col_alert = False
         self.link.send("R")
 
+    def default_thresholds(self):
+        boxes = (self.col_a25, self.col_vib, self.col_a25_turn, self.col_vib_turn)
+        for box, value in zip(boxes, DRIVE_THR_DEFAULT, strict=True):
+            box.setValue(value)
+        for box, value in zip(self.imu_row[1:], IMU_THR_DEFAULT, strict=True):
+            box.setValue(value)
+        if self.col_a25_turn.isEnabled():
+            self.link.send("T {} {} {} {}".format(*DRIVE_THR_DEFAULT))
+        else:
+            self.link.send("T {} {}".format(*DRIVE_THR_DEFAULT[:2]))
+        # Also while the IMU detector is off, so it starts from the defaults.
+        if self.fw_imu:
+            a25, vib, a25_turn, vib_turn, dps = IMU_THR_DEFAULT
+            self.link.send(f"I {a25} {vib} {a25_turn} {dps}" +
+                           (f" {vib_turn}" if self.fw_imu_vib_turn else ""))
+
     def send_thresholds(self):
         cmd = f"T {self.col_a25.value()} {self.col_vib.value()}"
         if self.col_a25_turn.isEnabled():
             cmd += f" {self.col_a25_turn.value()} {self.col_vib_turn.value()}"
         self.link.send(cmd)
         if self.imu_a25.isEnabled():
-            self.link.send(f"I {self.imu_a25.value()} {self.imu_vib.value()} "
-                           f"{self.imu_a25_turn.value()} {self.imu_turn_dps.value()}")
+            cmd = (f"I {self.imu_a25.value()} {self.imu_vib.value()} "
+                   f"{self.imu_a25_turn.value()} {self.imu_turn_dps.value()}")
+            if self.fw_imu_vib_turn:
+                cmd += f" {self.imu_vib_turn.value()}"
+            self.link.send(cmd)
         for box in (self.col_a25, self.col_vib, *self.turn_row, *self.imu_row[1:]):
             box.clearFocus()
 

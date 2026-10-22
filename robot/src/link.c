@@ -80,27 +80,42 @@ static int handle_command(char *cmd)
 		if ((ctx < COLLISION_CTX_DRIVE) || (ctx >= COLLISION_CTX_COUNT)) {
 			return -EINVAL;
 		}
-		collision_set_acting((enum collision_context)ctx);
+		return collision_set_acting((enum collision_context)ctx);
+	}
+	case 'E': {
+		long on = strtol(pos, NULL, 10);
+
+		if ((on != 0) && (on != 1)) {
+			return -EINVAL;
+		}
+		collision_set_imu_enabled(on == 1);
 		return 0;
 	}
 	case 'I': {
-		long v[4];
+		struct collision_state cur;
+		long v[5];
+		size_t n = 0U;
 
-		for (size_t n = 0U; n < ARRAY_SIZE(v); n++) {
+		collision_get(&cur);
+		v[4] = cur.imu_vib_turn_thr_mg;
+		while (n < ARRAY_SIZE(v)) {
 			char *end;
+			long x = strtol(pos, &end, 10);
 
-			v[n] = strtol(pos, &end, 10);
 			if (end == pos) {
-				return -EINVAL;
+				break;
 			}
+			v[n++] = x;
 			pos = end;
 		}
-		if ((v[0] < 100) || (v[0] > 16000) || (v[1] < 0) || (v[1] > 16000) ||
-		    (v[2] < 100) || (v[2] > 16000) || (v[3] < 1) || (v[3] > 500)) {
+		/* Four values keep vib turning, as sent by apps before 0.9.1. */
+		if (((n != 4U) && (n != 5U)) || (v[0] < 100) || (v[0] > 16000) || (v[1] < 0) ||
+		    (v[1] > 16000) || (v[2] < 100) || (v[2] > 16000) || (v[3] < 1) ||
+		    (v[3] > 500) || (v[4] < 0) || (v[4] > 16000)) {
 			return -EINVAL;
 		}
 		collision_set_imu_thresholds((uint16_t)v[0], (uint16_t)v[1], (uint16_t)v[2],
-					     (uint16_t)v[3]);
+					     (uint16_t)v[4], (uint16_t)v[3]);
 		return 0;
 	}
 	case 'T': {
@@ -207,10 +222,12 @@ static void send_status(int s, const struct net_sockaddr_in *to)
 	st.imu_col_vib_thr_mg = col.imu_vib_thr_mg;
 	st.imu_col_a25_turn_thr_mg = col.imu_a25_turn_thr_mg;
 	st.imu_col_turn_dps = col.imu_turn_dps;
+	st.imu_col_enabled = col.imu_enabled ? 1U : 0U;
 	st.imu_col_a25_mg = col.ev[COLLISION_CTX_IMU].a25_mg;
 	st.imu_col_vib_mg = col.ev[COLLISION_CTX_IMU].vib_mg;
 	st.imu_col_count = col.ev[COLLISION_CTX_IMU].count;
 	st.imu_col_t_us = col.ev[COLLISION_CTX_IMU].t_us;
+	st.imu_col_vib_turn_thr_mg = col.imu_vib_turn_thr_mg;
 	st.gyro_bias_updates = imu.bias_updates;
 	for (size_t i = 0U; i < 3U; i++) {
 		st.gyro_bias_mdps[i] =

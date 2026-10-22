@@ -24,7 +24,7 @@ import numpy as np  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import analyze  # noqa: E402
 
-A, V, A_TURN = 0.6, 0.9, 1.0
+A, V, A_TURN, V_TURN = 0.6, 0.9, 1.0, 2.0
 plt.rcParams.update({"font.size": 9, "axes.grid": True, "grid.alpha": 0.3,
                      "figure.dpi": 150, "savefig.bbox": "tight"})
 
@@ -152,7 +152,7 @@ def main():
                                                            (d["right"] != 0))
             points.setdefault(cls, []).append((d["a25"][m].max(), d["vib"][m].max()))
             continue
-        for e in analyze.find_events(d, A, V, A_TURN, 0):
+        for e in analyze.find_events(d, A, V, A_TURN, V_TURN):
             points.setdefault(cls, []).append((e["a25"], e["vib"]))
     scatter(points, os.path.join(args.out, "scatter.png"))
     response(os.path.join(args.out, "response.png"))

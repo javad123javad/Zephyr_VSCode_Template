@@ -69,17 +69,29 @@ Modes, selectable in the app or with ``CONFIG_ROBOT_COLLISION_MODE``:
 * Off.
 
 While turning (spin or curve) the robot uses its own thresholds: the
-skid-steer wheels scrub sideways and shake the robot as hard as a collision
-(spins reached 1.6 g of vibration, 0.67 g ``a25``), so only ``a25`` above
-1.0 g counts there by default. The turning thresholds are a separate row in
-the app and ``--a25-turn``/``--vib-turn`` in ``analyze.py``.
+skid-steer wheels scrub sideways and shake the robot (spins without contact
+reached 1.6 g of vibration, 0.77 g ``a25``), so ``a25`` counts above 1.0 g and
+vibration above 2.0 g there; spins into an obstacle shook the robot by 2.1 to
+3.8 g. The turning thresholds are separate rows in the app and
+``--a25-turn``/``--vib-turn`` in ``analyze.py``. The "Defaults" button in the
+app restores all thresholds.
+
+For vehicles whose wheels roll through a turn (differential drive, car-like
+steering), two corrections of ``a25`` are prepared and off by default:
+``CONFIG_ROBOT_COLLISION_SLOW_SHIFT`` removes slowly changing acceleration
+(long curves, ramps) and ``CONFIG_ROBOT_COLLISION_IMU_POS_X_MM``/``_Y_MM``
+remove what rotation adds at an IMU mounted away from the reference point.
+``analyze.py`` takes the same as ``--slow-shift`` and ``--imu-pos``.
 
 A second detector derives its context from the IMU alone, as on a vehicle
 without access to its drive: turning from the gyro's yaw rate, braking excluded
 by higher thresholds (0.9 g). Both run on every sample; the "drive acts" / "IMU
 acts" selector in the app picks the one that stops the robot, the other one
 only reports (purple markers, "shadow" in the events file), so both can be
-compared on the same drives.
+compared on the same drives. The "IMU-only detector" checkbox switches the
+second detector off and on (firmware 0.9.1 and later); while it is off the
+drive detector acts. ``CONFIG_ROBOT_COLLISION_IMU_ENABLE`` sets the state at
+boot.
 
 The app shows a collision in a red button with the direction it came from
 and its strength; clicking it resets. Collisions appear as red lines in the
@@ -300,6 +312,7 @@ the app closes or the link drops.
 
 The link is a UDP session on port 4244, described in ``src/link.h``: text
 commands from the PC (``S`` keep alive, ``D <throttle> <turn> <speed>``,
-``R`` reset, ``X`` end) and binary IMU and status packets from the robot.
+``R`` reset, ``X`` end, plus the collision settings ``M``, ``T``, ``C``, ``I``
+and ``E``) and binary IMU and status packets from the robot.
 ``tools/imu_log.py`` is a command-line recorder for the same stream.
 

@@ -7,6 +7,7 @@
 #ifndef ROBOT_COLLISION_H_
 #define ROBOT_COLLISION_H_
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "imu.h"
@@ -56,6 +57,8 @@ struct collision_state {
 	enum collision_mode mode;
 	/** Detector that stops the robot in stop mode. */
 	enum collision_context acting;
+	/** The IMU-only detector runs; when false it is not evaluated at all. */
+	bool imu_enabled;
 	/** Drive context: thresholds in mg, while straight and while turning. */
 	uint16_t a25_thr_mg;
 	uint16_t vib_thr_mg;
@@ -66,6 +69,8 @@ struct collision_state {
 	uint16_t imu_a25_thr_mg;
 	uint16_t imu_vib_thr_mg;
 	uint16_t imu_a25_turn_thr_mg;
+	/** 0: vibration not used while turning. */
+	uint16_t imu_vib_turn_thr_mg;
 	uint16_t imu_turn_dps;
 	/** Last collision of each detector. */
 	struct collision_event ev[COLLISION_CTX_COUNT];
@@ -91,8 +96,21 @@ void collision_set_mode(enum collision_mode mode);
  * @brief Select the detector that acts; the other one only reports.
  *
  * @param ctx Detector
+ *
+ * @retval 0 Selected
+ * @retval -EINVAL The IMU-only detector is disabled
  */
-void collision_set_acting(enum collision_context ctx);
+int collision_set_acting(enum collision_context ctx);
+
+/**
+ * @brief Run or stop the IMU-only detector.
+ *
+ * Disabling it while it acts hands over to the drive-context detector, so
+ * the robot always keeps a collision detector.
+ *
+ * @param on True to run it
+ */
+void collision_set_imu_enabled(bool on);
 
 /**
  * @brief Set the thresholds of the drive-context detector.
@@ -111,10 +129,11 @@ void collision_set_thresholds(uint16_t a25_mg, uint16_t vib_mg, uint16_t a25_tur
  * @param a25_mg Horizontal acceleration averaged over 25 ms, mg
  * @param vib_mg Vibration RMS over 100 ms, mg
  * @param a25_turn_mg Averaged acceleration while turning, mg
+ * @param vib_turn_mg Vibration while turning, mg; 0 does not use vibration
  * @param turn_dps Yaw rate averaged over 250 ms above which the robot turns
  */
 void collision_set_imu_thresholds(uint16_t a25_mg, uint16_t vib_mg, uint16_t a25_turn_mg,
-				  uint16_t turn_dps);
+				  uint16_t vib_turn_mg, uint16_t turn_dps);
 
 /**
  * @brief Get the mode, thresholds and the last collision of each detector.

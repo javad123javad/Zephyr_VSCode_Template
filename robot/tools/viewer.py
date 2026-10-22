@@ -72,7 +72,7 @@ class Viewer(QtWidgets.QMainWindow):
         self.a25_turn = QtWidgets.QDoubleSpinBox(minimum=0.1, maximum=8, singleStep=0.05,
                                                  value=1.0, suffix=" g", decimals=2)
         self.vib_turn = QtWidgets.QDoubleSpinBox(minimum=0, maximum=8, singleStep=0.05,
-                                                 value=0, suffix=" g", decimals=2,
+                                                 value=2.0, suffix=" g", decimals=2,
                                                  specialValueText="off")
         for box in (self.a25, self.vib, self.a25_turn, self.vib_turn):
             box.valueChanged.connect(self.recompute)
@@ -89,7 +89,8 @@ class Viewer(QtWidgets.QMainWindow):
         self.imu_boxes = []
         for name, val, suffix, maxi in (("IMU a25", 0.9, " g", 8), ("IMU vib", 0.9, " g", 8),
                                         ("IMU a25 turn", 1.0, " g", 8),
-                                        ("IMU turn rate", 10, " °/s", 200)):
+                                        ("IMU turn rate", 10, " °/s", 200),
+                                        ("IMU vib turn", 2.0, " g", 8)):
             b = QtWidgets.QDoubleSpinBox(minimum=0, maximum=maxi, value=val, suffix=suffix,
                                          singleStep=0.05 if suffix == " g" else 1,
                                          decimals=2 if suffix == " g" else 0)

@@ -22,7 +22,7 @@ An event is a stretch where a25 or vib crosses its threshold. The rule
 under test flags it as a collision when a threshold is crossed while
 driving or turning; a jolt that follows a stop is braking, even if the
 event began while driving. Turning has its own thresholds: the wheels scrub
-sideways and shake the robot, so vibration is not used there by default. Each
+sideways and shake the robot, so both are higher there. Each
 event is matched with the label set in the app (or given with --label).
 The summary per label shows how well the features and the rule separate
 collisions from everything else.
@@ -78,7 +78,9 @@ def moving_mean(x, n):
     return np.convolve(x, np.ones(n) / n, mode="same")
 
 
-def features(d):
+def features(d, slow_shift=0, imu_pos=(0.0, 0.0)):
+    """Features and context; slow_shift and imu_pos (m) as the firmware's
+    CONFIG_ROBOT_COLLISION_SLOW_SHIFT and CONFIG_ROBOT_COLLISION_IMU_POS_*_MM."""
     moving = (d["left"] != 0) | (d["right"] != 0)
     # Remove the tilt offset seen at rest so a25 reads zero when standing.
     rest = ~moving
@@ -87,9 +89,26 @@ def features(d):
     ax, ay = d["ax"] - ox, d["ay"] - oy
     n25, n100 = int(0.025 * RATE), int(0.1 * RATE)
     mx, my = moving_mean(ax, n25), moving_mean(ay, n25)
+    d["vib"] = np.sqrt(moving_mean((ax - mx) ** 2 + (ay - my) ** 2, n100))
+    rx, ry = imu_pos
+    if rx or ry:
+        # Rotation about z adds alpha x r + omega x (omega x r) at the IMU.
+        w = np.radians(d["gz"])
+        alpha = np.gradient(w, 1 / RATE)
+        mx = mx - moving_mean(-alpha * ry - w * w * rx, n25) / 9.80665
+        my = my - moving_mean(alpha * rx - w * w * ry, n25) / 9.80665
+    if slow_shift:
+        # Causal low-pass with a time constant of 2^slow_shift samples.
+        k = 2.0 ** -slow_shift
+        sx = sy = 0.0
+        lx, ly = np.empty_like(mx), np.empty_like(my)
+        for i in range(len(mx)):
+            sx += (mx[i] - sx) * k
+            sy += (my[i] - sy) * k
+            lx[i], ly[i] = sx, sy
+        mx, my = mx - lx, my - ly
     d["a25x"], d["a25y"] = mx, my
     d["a25"] = np.hypot(mx, my)
-    d["vib"] = np.sqrt(moving_mean((ax - mx) ** 2 + (ay - my) ** 2, n100))
 
     # Context from the commanded and actual side speeds.
     t = d["t"]
@@ -142,10 +161,10 @@ def sector(x, y):
     return SECTORS[int(((ang + 22.5) % 360) // 45)]
 
 
-def find_events(d, a25_thr, vib_thr, a25_turn=1.0, vib_turn=0.0, imu=None):
+def find_events(d, a25_thr, vib_thr, a25_turn=1.0, vib_turn=2.0, imu=None):
     """Events where a feature crosses a threshold; vib_turn 0 means unused.
 
-    With imu = (a25, vib, a25_turn, turn_dps) the context comes from the IMU
+    With imu = (a25, vib, a25_turn, turn_dps[, vib_turn]) the context comes from the IMU
     alone, as the firmware's IMU-only detector does: no drive state, turning
     from the gyro, braking excluded only by the thresholds.
     """
@@ -189,10 +208,13 @@ def find_events(d, a25_thr, vib_thr, a25_turn=1.0, vib_turn=0.0, imu=None):
     return events
 
 
-def find_events_imu(d, a25_thr, vib_thr, a25_turn, turn_dps):
+def find_events_imu(d, a25_thr, vib_thr, a25_turn, turn_dps, vib_turn=2.0):
     turning = imu_turning(d, turn_dps)
-    vib_hit = (d["vib"] > vib_thr) if vib_thr > 0 else np.zeros(len(d["t"]), dtype=bool)
-    rule = np.where(turning, d["a25"] > a25_turn, (d["a25"] > a25_thr) | vib_hit)
+    none = np.zeros(len(d["t"]), dtype=bool)
+    vib_hit = (d["vib"] > vib_thr) if vib_thr > 0 else none
+    vib_turn_hit = (d["vib"] > vib_turn) if vib_turn > 0 else none
+    rule = np.where(turning, (d["a25"] > a25_turn) | vib_turn_hit,
+                    (d["a25"] > a25_thr) | vib_hit)
     cand = rule | (d["a25"] > min(a25_thr, a25_turn) * 0.8) | vib_hit
     events = []
     idx = np.flatnonzero(cand)
@@ -212,7 +234,7 @@ def find_events_imu(d, a25_thr, vib_thr, a25_turn, turn_dps):
         trig = []
         if (d["a25"][hits] > np.where(turning[hits], a25_turn, a25_thr)).any():
             trig.append("a25")
-        if (vib_hit[hits] & ~turning[hits]).any():
+        if (np.where(turning[hits], vib_turn_hit[hits], vib_hit[hits])).any():
             trig.append("vib")
         events.append({
             "t": d["t"][g[0]], "t_peak": d["t"][p], "dur": d["t"][g[-1]] - d["t"][g[0]],
@@ -288,14 +310,19 @@ def main():
     ap.add_argument("--vib", type=float, default=0.9, help="vibration threshold, g (0.9)")
     ap.add_argument("--a25-turn", type=float, default=1.0,
                     help="a25 threshold while turning, g (1.0)")
-    ap.add_argument("--vib-turn", type=float, default=0.0,
-                    help="vibration threshold while turning, g (0 = unused)")
+    ap.add_argument("--vib-turn", type=float, default=2.0,
+                    help="vibration threshold while turning, g (2.0; 0 = unused)")
     ap.add_argument("--context", choices=["drive", "imu"], default="drive",
                     help="context from the drive state (default) or from the IMU alone")
-    ap.add_argument("--imu", type=float, nargs=4, default=[0.9, 0.9, 1.0, 10.0],
-                    metavar=("A25", "VIB", "A25_TURN", "TURN_DPS"),
+    ap.add_argument("--imu", type=float, nargs=5, default=[0.9, 0.9, 1.0, 10.0, 2.0],
+                    metavar=("A25", "VIB", "A25_TURN", "TURN_DPS", "VIB_TURN"),
                     help="IMU-only thresholds in g and the turning yaw rate in deg/s "
-                         "(0.9 0.9 1.0 10)")
+                         "(0.9 0.9 1.0 10 2.0)")
+    ap.add_argument("--slow-shift", type=int, default=0, metavar="N",
+                    help="measure a25 against its low-pass with a time constant of "
+                         "2^N samples (0 = off)")
+    ap.add_argument("--imu-pos", type=float, nargs=2, default=[0.0, 0.0], metavar=("X", "Y"),
+                    help="IMU position from the reference point, mm (x forward, y left)")
     ap.add_argument("--label", action="append", default=[], metavar="FILE=LABEL",
                     help="label for events in a file recorded without labels")
     ap.add_argument("--plots", metavar="DIR", help="write one PNG per event")
@@ -314,7 +341,7 @@ def main():
         d = load(path)
         if d is None:
             continue
-        features(d)
+        features(d, args.slow_shift, (args.imu_pos[0] / 1000, args.imu_pos[1] / 1000))
         default = given.get(path, given.get(os.path.basename(path), ""))
         windows = label_windows(d)
         drive = d["ctx"] == "driving"

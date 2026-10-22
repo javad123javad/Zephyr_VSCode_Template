@@ -6,15 +6,16 @@
  * Collision detection on the IMU stream, the rule tools/analyze.py checks and
  * doc/collision-detection.rst derives. Two features on every sample:
  *
- *   a25  horizontal acceleration averaged over 25 ms
+ *   a25  horizontal acceleration averaged over 25 ms, at the reference point
+ *        (lever arm removed) and less its slow part (curves, ramps)
  *   vib  vibration RMS over 100 ms, of what the 25 ms average leaves out
  *
  * Two detectors use them with different context:
  *
  * Drive context: while driving straight, a25 or vib above its threshold;
- * while turning (turn command), a25 only, because the skid-steer wheels
- * scrub and shake the robot as hard as a collision. Braking is excluded
- * because the sides have stopped by then.
+ * while turning (turn command), with higher thresholds, because the
+ * skid-steer wheels scrub and shake the robot. Braking is excluded because
+ * the sides have stopped by then.
  *
  * IMU context, as on a vehicle without access to its drive: turning is a yaw
  * rate averaged over 250 ms above a threshold, held for 500 ms because the
@@ -22,6 +23,7 @@
  * thresholds only: it is slower than an impact.
  */
 
+#include <errno.h>
 #include <math.h>
 #include <stdbool.h>
 
@@ -49,6 +51,12 @@ LOG_MODULE_REGISTER(collision, LOG_LEVEL_INF);
 /* Rest offset (tilt) learns with a time constant of 256 samples. */
 #define OFS_SHIFT    8
 
+/* Gyro raw units to rad/s, accelerometer LSB per m/s^2. */
+#define GYRO_RAD_S   (3.14159265f / 180.0f * 1000.0f / (float)IMU_GYRO_LSB_PER_DPS_X1000)
+#define LSB_PER_MS2  (1e6f / (9.80665f * (float)IMU_ACCEL_UG_PER_LSB))
+#define LEVER_ARM    ((CONFIG_ROBOT_COLLISION_IMU_POS_X_MM != 0) || \
+		      (CONFIG_ROBOT_COLLISION_IMU_POS_Y_MM != 0))
+
 #define LSB_TO_MG(x) (((x) * IMU_ACCEL_UG_PER_LSB) / 1000)
 #define MG_TO_LSB(x) (((x) * 1000) / IMU_ACCEL_UG_PER_LSB)
 
@@ -57,7 +65,9 @@ static const char *const ctx_names[COLLISION_CTX_COUNT] = {"drive", "IMU"};
 static struct k_spinlock lock;
 static struct collision_state state = {
 	.mode = CONFIG_ROBOT_COLLISION_MODE,
-	.acting = CONFIG_ROBOT_COLLISION_ACTING,
+	.acting = IS_ENABLED(CONFIG_ROBOT_COLLISION_IMU_ENABLE) ? CONFIG_ROBOT_COLLISION_ACTING
+								: COLLISION_CTX_DRIVE,
+	.imu_enabled = IS_ENABLED(CONFIG_ROBOT_COLLISION_IMU_ENABLE),
 	.a25_thr_mg = CONFIG_ROBOT_COLLISION_A25_MG,
 	.vib_thr_mg = CONFIG_ROBOT_COLLISION_VIB_MG,
 	.a25_turn_thr_mg = CONFIG_ROBOT_COLLISION_A25_TURN_MG,
@@ -65,6 +75,7 @@ static struct collision_state state = {
 	.imu_a25_thr_mg = CONFIG_ROBOT_COLLISION_IMU_A25_MG,
 	.imu_vib_thr_mg = CONFIG_ROBOT_COLLISION_IMU_VIB_MG,
 	.imu_a25_turn_thr_mg = CONFIG_ROBOT_COLLISION_IMU_A25_TURN_MG,
+	.imu_vib_turn_thr_mg = CONFIG_ROBOT_COLLISION_IMU_VIB_TURN_MG,
 	.imu_turn_dps = CONFIG_ROBOT_COLLISION_IMU_TURN_DPS,
 };
 
@@ -80,6 +91,8 @@ static int32_t sum_yaw;
 static uint32_t n_samples;
 static int32_t ofs_x_q;
 static int32_t ofs_y_q;
+static int32_t slow_x_q;
+static int32_t slow_y_q;
 static int prev_sides;
 static uint32_t move_start_us;
 static uint32_t turn_seen_us;
@@ -137,6 +150,22 @@ static void finish_event(size_t i)
 		ev.a25_mg, ev.vib_mg, ev.sector);
 }
 
+/*
+ * Average over the a25 window of what rotation about z adds at the IMU:
+ * alpha x r + omega x (omega x r), in accelerometer LSB.
+ */
+static void lever_arm(int16_t gz, int16_t gz_old, int32_t *x, int32_t *y)
+{
+	const float rx = (float)CONFIG_ROBOT_COLLISION_IMU_POS_X_MM / 1000.0f;
+	const float ry = (float)CONFIG_ROBOT_COLLISION_IMU_POS_Y_MM / 1000.0f;
+	float w = (float)gz * GYRO_RAD_S;
+	float alpha = (float)(gz - gz_old) * GYRO_RAD_S * (float)CONFIG_ROBOT_IMU_RATE /
+		      (float)WIN_A25;
+
+	*x = (int32_t)lroundf(((-alpha * ry) - (w * w * rx)) * LSB_PER_MS2);
+	*y = (int32_t)lroundf(((alpha * rx) - (w * w * ry)) * LSB_PER_MS2);
+}
+
 static bool over(uint32_t value_sq, uint32_t thr_mg)
 {
 	uint32_t thr = MG_TO_LSB(thr_mg);
@@ -177,13 +206,31 @@ void collision_process(const struct imu_sample *s)
 	win_y[i] = (int16_t)ay;
 	mx = sum_x / WIN_A25;
 	my = sum_y / WIN_A25;
-	a25_sq = (uint32_t)((mx * mx) + (my * my));
 
 	i = n_samples % WIN_VIB;
 	sum_q -= win_q[i];
 	win_q[i] = (uint32_t)(((ax - mx) * (ax - mx)) + ((ay - my) * (ay - my)));
 	sum_q += win_q[i];
 	vib_sq = (uint32_t)(sum_q / WIN_VIB);
+
+	if (LEVER_ARM && (n_samples >= WIN_A25)) {
+		int32_t lx;
+		int32_t ly;
+
+		lever_arm(s->gyro[2], win_yaw[(n_samples - WIN_A25) % WIN_YAW], &lx, &ly);
+		mx -= lx;
+		my -= ly;
+	}
+
+	if (CONFIG_ROBOT_COLLISION_SLOW_SHIFT > 0) {
+		slow_x_q += ((mx * (1 << CONFIG_ROBOT_COLLISION_SLOW_SHIFT)) - slow_x_q) >>
+			    CONFIG_ROBOT_COLLISION_SLOW_SHIFT;
+		slow_y_q += ((my * (1 << CONFIG_ROBOT_COLLISION_SLOW_SHIFT)) - slow_y_q) >>
+			    CONFIG_ROBOT_COLLISION_SLOW_SHIFT;
+		mx -= slow_x_q >> CONFIG_ROBOT_COLLISION_SLOW_SHIFT;
+		my -= slow_y_q >> CONFIG_ROBOT_COLLISION_SLOW_SHIFT;
+	}
+	a25_sq = (uint32_t)((mx * mx) + (my * my));
 
 	/* Yaw rate (robot frame, bias removed) summed over 250 ms. */
 	i = n_samples % WIN_YAW;
@@ -223,13 +270,20 @@ void collision_process(const struct imu_sample *s)
 		turning = turn_seen && ((uint32_t)(s->t_us - turn_seen_us) <= TURN_HOLD_US);
 
 		hit[COLLISION_CTX_IMU] =
-			turning ? over(a25_sq, cfg.imu_a25_turn_thr_mg)
+			turning ? (over(a25_sq, cfg.imu_a25_turn_thr_mg) ||
+				   over(vib_sq, cfg.imu_vib_turn_thr_mg))
 				: (over(a25_sq, cfg.imu_a25_thr_mg) ||
 				   over(vib_sq, cfg.imu_vib_thr_mg));
 	}
 
 	for (i = 0U; i < COLLISION_CTX_COUNT; i++) {
 		struct detector *dt = &det[i];
+
+		if ((i == (size_t)COLLISION_CTX_IMU) && !cfg.imu_enabled) {
+			/* Drop an event cut short by disabling; start clean when enabled. */
+			dt->collecting = false;
+			continue;
+		}
 
 		if (dt->collecting) {
 			if (dt->n < DIR_SAMPLES) {
@@ -279,11 +333,29 @@ void collision_set_mode(enum collision_mode mode)
 	k_spin_unlock(&lock, key);
 }
 
-void collision_set_acting(enum collision_context ctx)
+int collision_set_acting(enum collision_context ctx)
+{
+	k_spinlock_key_t key = k_spin_lock(&lock);
+	int ret = 0;
+
+	if ((ctx == COLLISION_CTX_IMU) && !state.imu_enabled) {
+		ret = -EINVAL;
+	} else {
+		state.acting = ctx;
+	}
+	k_spin_unlock(&lock, key);
+
+	return ret;
+}
+
+void collision_set_imu_enabled(bool on)
 {
 	k_spinlock_key_t key = k_spin_lock(&lock);
 
-	state.acting = ctx;
+	state.imu_enabled = on;
+	if (!on) {
+		state.acting = COLLISION_CTX_DRIVE;
+	}
 	k_spin_unlock(&lock, key);
 }
 
@@ -300,13 +372,14 @@ void collision_set_thresholds(uint16_t a25_mg, uint16_t vib_mg, uint16_t a25_tur
 }
 
 void collision_set_imu_thresholds(uint16_t a25_mg, uint16_t vib_mg, uint16_t a25_turn_mg,
-				  uint16_t turn_dps)
+				  uint16_t vib_turn_mg, uint16_t turn_dps)
 {
 	k_spinlock_key_t key = k_spin_lock(&lock);
 
 	state.imu_a25_thr_mg = a25_mg;
 	state.imu_vib_thr_mg = vib_mg;
 	state.imu_a25_turn_thr_mg = a25_turn_mg;
+	state.imu_vib_turn_thr_mg = vib_turn_mg;
 	state.imu_turn_dps = turn_dps;
 	k_spin_unlock(&lock, key);
 }

@@ -99,10 +99,48 @@ config ROBOT_COLLISION_A25_TURN_MG
 
 config ROBOT_COLLISION_VIB_TURN_MG
 	int "Collision threshold while turning: vibration RMS (mg), 0 = unused"
+	default 2000
+	help
+	  The skid-steer wheels scrub in spins: spins without contact reached
+	  1.6 g of vibration, spins into an obstacle 2.1 to 3.8 g.
+
+config ROBOT_COLLISION_SLOW_SHIFT
+	int "Slow acceleration removed from a25: time constant 2^n samples"
+	range 0 12
 	default 0
 	help
-	  Spins reach 1.6 g of vibration, as much as collisions, so vibration
-	  is not used while turning by default.
+	  a25 is measured against a low-pass of itself with a time constant of
+	  2^n samples (9: 512 samples, 1.28 s at 400 Hz). It removes what
+	  changes slowly compared with an impact: the centripetal acceleration
+	  in long curves, ramps, sustained pushing. Braking is too fast to be
+	  affected. 0 disables it. On this robot curves last a few seconds and
+	  no false alarm needed it, while it lowered curve hits by 0.1 to 0.2 g
+	  (n = 9) or 0.03 to 0.06 g (n = 11); a vehicle with long curves or
+	  ramps wants 10 or 11.
+
+config ROBOT_COLLISION_IMU_POS_X_MM
+	int "IMU position ahead of the reference point (mm)"
+	default 0
+	help
+	  Position of the IMU relative to the point whose acceleration the
+	  detectors judge, in the robot frame (x forward). Away from that
+	  point a yawing vehicle adds alpha x r + omega x (omega x r) to the
+	  measurement; this is subtracted from a25. For a car-like vehicle the
+	  reference point is the middle of the rear axle; for a skid-steer or
+	  differential-drive robot, the middle between the wheels.
+
+config ROBOT_COLLISION_IMU_POS_Y_MM
+	int "IMU position left of the reference point (mm)"
+	default 0
+	help
+	  See ROBOT_COLLISION_IMU_POS_X_MM; y points left.
+
+config ROBOT_COLLISION_IMU_ENABLE
+	bool "Run the IMU-only collision detector"
+	default y
+	help
+	  Evaluate the IMU-only detector next to the drive-context one. The
+	  PC app can switch it on and off.
 
 config ROBOT_COLLISION_ACTING
 	int "Detector that acts on a collision"
@@ -127,6 +165,12 @@ config ROBOT_COLLISION_IMU_VIB_MG
 config ROBOT_COLLISION_IMU_A25_TURN_MG
 	int "IMU-only: acceleration threshold while turning (mg)"
 	default 1000
+
+config ROBOT_COLLISION_IMU_VIB_TURN_MG
+	int "IMU-only: vibration RMS threshold while turning (mg), 0 = unused"
+	default 2000
+	help
+	  See ROBOT_COLLISION_VIB_TURN_MG.
 
 config ROBOT_COLLISION_IMU_TURN_DPS
 	int "IMU-only: yaw rate over 250 ms that means turning (deg/s)"
