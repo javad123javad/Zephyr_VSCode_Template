@@ -280,6 +280,9 @@ class Card(QtWidgets.QFrame):
 
     def set(self, name, text, warn=False):
         label = self.values[name]
+        # Re-polishing repaints the label; most calls change nothing.
+        if label.text() == text and label.property("warn") == warn:
+            return
         label.setText(text)
         label.setProperty("warn", warn)
         label.style().unpolish(label)
@@ -418,9 +421,11 @@ class Window(QtWidgets.QMainWindow):
         self._build_ui()
         self.apply_theme(self.settings.value("theme", "light"))
 
-        self.timer = QtCore.QTimer(self, interval=5, timeout=self.tick)
+        # The robot sends 20 batches a second; polling faster only costs CPU.
+        self.timer = QtCore.QTimer(self, interval=20, timeout=self.tick)
         self.timer.start()
-        self.plot_timer = QtCore.QTimer(self, interval=33, timeout=self.redraw)
+        self.drawn_n = 0
+        self.plot_timer = QtCore.QTimer(self, interval=50, timeout=self.redraw)
         self.plot_timer.start()
         QtWidgets.QApplication.instance().installEventFilter(self)
 
@@ -499,7 +504,8 @@ class Window(QtWidgets.QMainWindow):
                 p.setXLink(self.plot_items[0])
             self.plot_items.append(p)
             for i, name in enumerate(names):
-                self.curves.append(p.plot(pen=pg.mkPen(COLORS[i], width=1.3), name=name))
+                self.curves.append(p.plot(pen=pg.mkPen(COLORS[i], width=1.3), name=name,
+                                          skipFiniteCheck=True))
         self.markers = []        # (robot time s, label, lines in each plot)
         self.marked = []
         middle.addWidget(self.plots, 1)
@@ -599,6 +605,7 @@ class Window(QtWidgets.QMainWindow):
         self.window_box.addItems([f"{s} s" for s in WINDOWS])
         self.window_box.setCurrentIndex(WINDOWS.index(int(self.settings.value("window", 5))))
         self.window_box.setFocusPolicy(QtCore.Qt.NoFocus)
+        self.window_box.currentIndexChanged.connect(self.force_redraw)
         view.addWidget(self.window_box)
         self.pause_btn = QtWidgets.QPushButton("Pause", checkable=True, toggled=self.toggle_pause)
         self.pause_btn.setFocusPolicy(QtCore.Qt.NoFocus)
@@ -990,8 +997,9 @@ class Window(QtWidgets.QMainWindow):
             self.rate_t = time.time()
 
     def redraw(self):
-        if self.n == 0 or self.paused:
+        if self.n == self.drawn_n or self.paused:
             return
+        self.drawn_n = self.n
         window = WINDOWS[self.window_box.currentIndex()]
         k = min(self.n, BUFFER)
         idx = np.arange(self.n - k, self.n) % BUFFER
@@ -1035,8 +1043,12 @@ class Window(QtWidgets.QMainWindow):
             self.markers.append((t_ev, name, lines))
         self.marked = list(self.events)
 
+    def force_redraw(self):
+        self.drawn_n = -1
+
     def toggle_pause(self, on):
         self.paused = on
+        self.drawn_n = -1
         self.pause_btn.setText("Resume" if on else "Pause")
         # Paused plots can be zoomed and panned with the mouse.
         for p in self.plot_items:
