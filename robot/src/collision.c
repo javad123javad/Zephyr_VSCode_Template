@@ -94,7 +94,8 @@ struct detector {
 	int32_t dir_y;
 	uint32_t a25_sq;
 	uint32_t vib_sq;
-	uint32_t holdoff_until_us;
+	/* Within HOLDOFF_US of t_us, the last event's start. */
+	bool holdoff;
 };
 
 static struct detector det[COLLISION_CTX_COUNT];
@@ -244,8 +245,13 @@ void collision_process(const struct imu_sample *s)
 			continue;
 		}
 
+		/* Elapsed time, not a deadline: t_us wraps every 71.6 minutes. */
+		if (dt->holdoff && ((uint32_t)(s->t_us - dt->t_us) >= HOLDOFF_US)) {
+			dt->holdoff = false;
+		}
+
 		if ((cfg.mode == COLLISION_OFF) || (n_samples < WARMUP) || !hit[i] ||
-		    ((int32_t)(s->t_us - dt->holdoff_until_us) < 0)) {
+		    dt->holdoff) {
 			continue;
 		}
 
@@ -261,7 +267,7 @@ void collision_process(const struct imu_sample *s)
 		dt->dir_y = 0;
 		dt->a25_sq = a25_sq;
 		dt->vib_sq = vib_sq;
-		dt->holdoff_until_us = s->t_us + HOLDOFF_US;
+		dt->holdoff = true;
 	}
 }
 
